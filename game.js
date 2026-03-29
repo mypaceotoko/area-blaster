@@ -103,7 +103,7 @@ const GRID_ROWS = 30;
 /* プレイヤー設定 */
 const PLAYER_SPEED_CELLS = 9;   // セル/秒
 const INITIAL_LIVES      = 3;
-const INVINCIBLE_FRAMES  = 100; // ミス後の無敵フレーム数
+const INVINCIBLE_FRAMES  = 150; // ミス後の無敵フレーム数（2.5秒相当）
 
 /* スコア設定 */
 const SCORE_PER_CELL   = 10;
@@ -259,11 +259,9 @@ function updatePlayer(dt) {
     moved = true;
   }
 
-  // スムーズ補間（描画用）
-  const targetPx = (Player.col + 0.5) * cellW();
-  const targetPy = (Player.row + 0.5) * cellH();
-  Player.px += (targetPx - Player.px) * 0.4;
-  Player.py += (targetPy - Player.py) * 0.4;
+  // 描画用ピクセルをグリッド座標に完全同期（スムーズ補間を廃止して接触判定と描画位置のズレをなくす）
+  Player.px = (Player.col + 0.5) * cellW();
+  Player.py = (Player.row + 0.5) * cellH();
 }
 
 /**
@@ -312,8 +310,11 @@ function stepPlayer() {
       Player.row = nr;
       closeArea();
     } else if (nextCell === CELL.TRAIL) {
-      // 自分の線を踏んだ → ミス
-      triggerMiss();
+      // 自分の線を踏んだ → ミス（2セル以上描いている場合のみ）
+      // trail[0]は出発地点なので、それ以外のセルを踏んだ場合に限定
+      if (Player.trail.length > 2) {
+        triggerMiss();
+      }
     }
     return true;
   }
@@ -374,7 +375,10 @@ function updateEnemies(dt) {
     const ery = Math.floor(e.py / ch);
     if (getCell(ecx, ery) === CELL.FILLED || getCell(ecx, ery) === CELL.BORDER) {
       e.vx = -e.vx;
-      e.px += e.vx * 2; // 壁から押し出す
+      // セル境界の外まで確実に押し出す
+      e.px = (e.vx > 0)
+        ? (ecx + 1) * cw + 0.5
+        : ecx * cw - 0.5;
     }
 
     // --- Y軸移動 ---
@@ -389,7 +393,10 @@ function updateEnemies(dt) {
     const ery2 = Math.floor(e.py / ch);
     if (getCell(ecx2, ery2) === CELL.FILLED || getCell(ecx2, ery2) === CELL.BORDER) {
       e.vy = -e.vy;
-      e.py += e.vy * 2; // 壁から押し出す
+      // セル境界の外まで確実に押し出す
+      e.py = (e.vy > 0)
+        ? (ery2 + 1) * ch + 0.5
+        : ery2 * ch - 0.5;
     }
 
     // --- 速度が0になった場合の保護（止まり防止） ---
@@ -541,34 +548,41 @@ function checkCollisions() {
 
   const cw = cellW();
   const ch = cellH();
-  const hitR = Math.min(cw, ch) * 0.52;
+  // ヒット半径を小さめに（見た目より少し小さい当たり判定で理不尽感を減らす）
+  const hitR = Math.min(cw, ch) * 0.38;
+
+  // プレイヤーが安全地帯（BORDER/FILLED）にいるときは本体接触判定しない
+  const playerOnSafe = (() => {
+    const pc = getCell(Player.col, Player.row);
+    return pc === CELL.BORDER || pc === CELL.FILLED;
+  })();
 
   for (const e of enemies) {
-    // プレイヤー本体との距離判定
-    const dx = e.px - Player.px;
-    const dy = e.py - Player.py;
-    if (dx * dx + dy * dy < hitR * hitR) {
-      triggerMiss();
-      return;
+    // --- プレイヤー本体との距離判定（線描画中のみ、または安全地帯外） ---
+    if (!playerOnSafe) {
+      const dx = e.px - Player.px;
+      const dy = e.py - Player.py;
+      if (dx * dx + dy * dy < hitR * hitR) {
+        triggerMiss();
+        return;
+      }
     }
 
-    // 線描画中：TRAILセルとの判定
+    // --- 線描画中：敵がTRAILセルの中心に十分近づいたら判定 ---
     if (Player.isDrawing) {
       const ec = Math.floor(e.px / cw);
       const er = Math.floor(e.py / ch);
-      // 敵の中心セルとその周囲1セルを確認
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (getCell(ec + dc, er + dr) === CELL.TRAIL) {
-            const tx  = (ec + dc + 0.5) * cw;
-            const ty  = (er + dr + 0.5) * ch;
-            const ddx = e.px - tx;
-            const ddy = e.py - ty;
-            if (ddx * ddx + ddy * ddy < hitR * hitR * 0.7) {
-              triggerMiss();
-              return;
-            }
-          }
+      // 敵の中心セルのみ確認（周囲1セルへの拡張は誤判定の原因になるため廃止）
+      if (getCell(ec, er) === CELL.TRAIL) {
+        // セル中心との距離で判定（セルの50%以内に入ったらヒット）
+        const tx  = (ec + 0.5) * cw;
+        const ty  = (er + 0.5) * ch;
+        const ddx = e.px - tx;
+        const ddy = e.py - ty;
+        const trailHitR = Math.min(cw, ch) * 0.5;
+        if (ddx * ddx + ddy * ddy < trailHitR * trailHitR) {
+          triggerMiss();
+          return;
         }
       }
     }
@@ -1144,7 +1158,7 @@ function gameLoop(timestamp) {
 function startStage(index) {
   Game.stageIndex     = index;
   Game.state          = STATE.PLAYING;
-  Game.invincible     = 0;
+  Game.invincible     = INVINCIBLE_FRAMES; // ステージ開始時に無敵付与（開幕即死防止）
   Game.missLock       = false;
   Game.fillFlashTimer = 0;
   Game.fillFlashCells = null;
