@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>AREA BLASTER - 陣取りアクション</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ========== タイトル画面 ========== -->
+  <div id="screen-title" class="screen active">
+    <div class="title-container">
+      <div class="title-logo">
+        <span class="title-main">AREA</span>
+        <span class="title-sub">BLASTER</span>
+      </div>
+      <div class="title-tagline">陣取りアクション</div>
+
+      <!-- キャラクタービジュアル（差し替え前提） -->
+      <div class="title-chara-area">
+        <div class="chara-placeholder" id="title-chara">
+          <!-- assets/images/chara_title.png を配置すると自動表示 -->
+          <div class="placeholder-label">CHARA</div>
+        </div>
+      </div>
+
+      <div class="title-menu">
+        <button class="menu-btn" id="btn-start">▶ ゲームスタート</button>
+        <button class="menu-btn" id="btn-howto">？ 遊び方</button>
+      </div>
+
+      <div class="title-controls-hint">
+        <span>↑↓←→ / WASD : 移動</span>
+        <span>SPACE : ポーズ</span>
+        <span>R : リスタート</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 遊び方画面 ========== -->
+  <div id="screen-howto" class="screen">
+    <div class="howto-container">
+      <h2 class="howto-title">遊び方</h2>
+      <div class="howto-content">
+        <div class="howto-item">
+          <span class="howto-icon">🎮</span>
+          <p>矢印キー または WASD でプレイヤーを移動します。</p>
+        </div>
+        <div class="howto-item">
+          <span class="howto-icon">✏️</span>
+          <p>未塗り領域の内部に入ると線を引き始めます。線が閉じると囲んだ範囲が自分の領域になります。</p>
+        </div>
+        <div class="howto-item">
+          <span class="howto-icon">⚠️</span>
+          <p>敵キャラに触れるか、引いている線に敵が触れるとミスになります。</p>
+        </div>
+        <div class="howto-item">
+          <span class="howto-icon">🏆</span>
+          <p>盤面の <strong>75%以上</strong> を塗りつぶすとステージクリアです！</p>
+        </div>
+        <div class="howto-item">
+          <span class="howto-icon">💀</span>
+          <p>残機が0になるとゲームオーバーです。</p>
+        </div>
+      </div>
+      <button class="menu-btn" id="btn-back-title">← タイトルへ戻る</button>
+    </div>
+  </div>
+
+  <!-- ========== ゲーム画面 ========== -->
+  <div id="screen-game" class="screen">
+    <!-- HUD（上部情報バー） -->
+    <div id="hud">
+      <div class="hud-item">
+        <span class="hud-label">SCORE</span>
+        <span class="hud-value" id="hud-score">0</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">STAGE</span>
+        <span class="hud-value" id="hud-stage">1</span>
+      </div>
+      <div class="hud-item hud-center">
+        <span class="hud-label">AREA</span>
+        <div class="area-bar-wrap">
+          <div class="area-bar" id="area-bar"></div>
+        </div>
+        <span class="hud-value" id="hud-area">0%</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">LIVES</span>
+        <span class="hud-value" id="hud-lives">❤️❤️❤️</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">HI</span>
+        <span class="hud-value" id="hud-hiscore">0</span>
+      </div>
+    </div>
+
+    <!-- ゲームキャンバス -->
+    <div id="canvas-wrap">
+      <canvas id="game-canvas" tabindex="0"></canvas>
+
+      <!-- オーバーレイメッセージ（ポーズ・クリア・ゲームオーバー等） -->
+      <div id="overlay" class="overlay hidden">
+        <div class="overlay-box">
+          <div class="overlay-title" id="overlay-title">PAUSE</div>
+          <div class="overlay-msg" id="overlay-msg"></div>
+          <div class="overlay-btns" id="overlay-btns"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- スマホ用タッチコントローラー -->
+    <div id="touch-controls">
+      <div id="dpad">
+        <button class="dpad-btn" id="dpad-up"   data-dir="up">▲</button>
+        <div class="dpad-row">
+          <button class="dpad-btn" id="dpad-left"  data-dir="left">◀</button>
+          <button class="dpad-btn dpad-center" id="dpad-pause" data-action="pause">⏸</button>
+          <button class="dpad-btn" id="dpad-right" data-dir="right">▶</button>
+        </div>
+        <button class="dpad-btn" id="dpad-down"  data-dir="down">▼</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== JavaScript ========== -->
+  <script src="game.js"></script>
+</body>
+</html>

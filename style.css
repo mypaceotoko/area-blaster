@@ -1,0 +1,450 @@
+/* ============================================================
+   AREA BLASTER - スタイルシート
+   ============================================================ */
+
+/* ---------- リセット & ベース ---------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg:        #0a0a1a;
+  --color-primary:   #00e5ff;
+  --color-secondary: #ff4081;
+  --color-accent:    #ffd740;
+  --color-safe:      #69f0ae;
+  --color-danger:    #ff5252;
+  --color-text:      #e0e0e0;
+  --color-hud-bg:    rgba(0, 0, 0, 0.85);
+  --font-pixel:      'Courier New', Courier, monospace;
+  --hud-height:      52px;
+  --touch-height:    140px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-pixel);
+}
+
+/* ---------- 画面切り替え ---------- */
+.screen {
+  display: none;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0; left: 0;
+}
+.screen.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================
+   タイトル画面
+   ============================================================ */
+#screen-title {
+  background:
+    radial-gradient(ellipse at 50% 30%, #1a0050 0%, #0a0a1a 70%);
+  flex-direction: column;
+}
+
+.title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 16px;
+  width: 100%;
+  max-width: 480px;
+}
+
+/* ロゴ */
+.title-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  text-shadow: 0 0 20px var(--color-primary), 0 0 40px var(--color-primary);
+}
+.title-main {
+  font-size: clamp(3rem, 12vw, 5.5rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--color-primary);
+}
+.title-sub {
+  font-size: clamp(1.8rem, 7vw, 3.2rem);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--color-accent);
+  text-shadow: 0 0 16px var(--color-accent);
+}
+.title-tagline {
+  font-size: 0.95rem;
+  letter-spacing: 0.25em;
+  color: var(--color-secondary);
+  text-shadow: 0 0 8px var(--color-secondary);
+}
+
+/* キャラクタープレースホルダー */
+.title-chara-area {
+  width: 220px;
+  height: 280px;
+  position: relative;
+}
+.chara-placeholder {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed rgba(0, 229, 255, 0.4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 229, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+.chara-placeholder img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.placeholder-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  color: rgba(0, 229, 255, 0.35);
+}
+/* 画像が読み込まれたら枠を消す */
+.chara-placeholder.has-image {
+  border: none;
+  background: transparent;
+}
+.chara-placeholder.has-image .placeholder-label {
+  display: none;
+}
+
+/* メニューボタン */
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.menu-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-family: var(--font-pixel);
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  color: var(--color-bg);
+  background: var(--color-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s, background 0.15s;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+}
+.menu-btn:hover, .menu-btn:focus {
+  background: #fff;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.9);
+  transform: translateY(-2px);
+  outline: none;
+}
+.menu-btn:active {
+  transform: translateY(0);
+}
+
+/* キーボードヒント */
+.title-controls-hint {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: rgba(224, 224, 224, 0.45);
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================
+   遊び方画面
+   ============================================================ */
+#screen-howto {
+  background: #0a0a1a;
+}
+.howto-container {
+  max-width: 480px;
+  width: 100%;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.howto-title {
+  font-size: 1.6rem;
+  color: var(--color-accent);
+  text-align: center;
+  letter-spacing: 0.15em;
+  text-shadow: 0 0 10px var(--color-accent);
+}
+.howto-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.howto-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid var(--color-primary);
+  padding: 10px 14px;
+  border-radius: 0 4px 4px 0;
+}
+.howto-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+.howto-item p {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+/* ============================================================
+   ゲーム画面
+   ============================================================ */
+#screen-game {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  background: var(--color-bg);
+}
+
+/* HUD */
+#hud {
+  height: var(--hud-height);
+  background: var(--color-hud-bg);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 56px;
+}
+.hud-item.hud-center {
+  flex: 1;
+  min-width: 100px;
+}
+.hud-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: rgba(224, 224, 224, 0.5);
+}
+.hud-value {
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: var(--color-primary);
+  letter-spacing: 0.05em;
+}
+
+/* エリアバー */
+.area-bar-wrap {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+.area-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--color-safe), var(--color-primary));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* キャンバスラッパー */
+#canvas-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+#game-canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ============================================================
+   オーバーレイ（ポーズ・クリア・ゲームオーバー）
+   ============================================================ */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  backdrop-filter: blur(2px);
+}
+.overlay.hidden {
+  display: none;
+}
+.overlay-box {
+  background: rgba(10, 10, 26, 0.95);
+  border: 2px solid var(--color-primary);
+  border-radius: 8px;
+  padding: 32px 40px;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(0, 229, 255, 0.3);
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.overlay-title {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  color: var(--color-accent);
+  text-shadow: 0 0 16px var(--color-accent);
+}
+.overlay-msg {
+  font-size: 0.9rem;
+  color: var(--color-text);
+  line-height: 1.7;
+}
+.overlay-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.overlay-btns .menu-btn {
+  font-size: 0.9rem;
+  padding: 11px 16px;
+}
+
+/* ============================================================
+   タッチコントローラー（スマホ用）
+   ============================================================ */
+#touch-controls {
+  height: var(--touch-height);
+  background: rgba(0, 0, 0, 0.7);
+  border-top: 1px solid rgba(0, 229, 255, 0.2);
+  display: none; /* JS で表示切り替え */
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+#dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dpad-row {
+  display: flex;
+  gap: 4px;
+}
+.dpad-btn {
+  width: 52px;
+  height: 52px;
+  font-size: 1.2rem;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 6px;
+  color: var(--color-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.08s;
+}
+.dpad-btn:active,
+.dpad-btn.pressed {
+  background: rgba(0, 229, 255, 0.45);
+}
+.dpad-center {
+  background: rgba(255, 64, 129, 0.15);
+  border-color: rgba(255, 64, 129, 0.4);
+  color: var(--color-secondary);
+}
+
+/* ============================================================
+   エフェクト・アニメーション
+   ============================================================ */
+@keyframes flash-red {
+  0%   { background: rgba(255, 82, 82, 0.5); }
+  100% { background: transparent; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(0, 229, 255, 0.5); }
+  50%       { box-shadow: 0 0 28px rgba(0, 229, 255, 1); }
+}
+@keyframes float-up {
+  0%   { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-60px); }
+}
+
+.miss-flash {
+  animation: flash-red 0.5s ease-out forwards;
+}
+.score-popup {
+  position: absolute;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--color-accent);
+  text-shadow: 0 0 8px var(--color-accent);
+  pointer-events: none;
+  animation: float-up 0.9s ease-out forwards;
+  z-index: 60;
+}
+
+/* ============================================================
+   レスポンシブ
+   ============================================================ */
+@media (max-width: 600px) {
+  :root {
+    --hud-height: 44px;
+    --touch-height: 130px;
+  }
+  .hud-value { font-size: 0.82rem; }
+  .hud-label { font-size: 0.55rem; }
+  #hud { padding: 0 6px; gap: 4px; }
+  .hud-item { min-width: 44px; }
+}
+
+/* タッチデバイスではDパッドを表示 */
+@media (pointer: coarse) {
+  #touch-controls { display: flex; }
+}
+
+/* ============================================================
+   スクロールバー非表示
+   ============================================================ */
+::-webkit-scrollbar { display: none; }
