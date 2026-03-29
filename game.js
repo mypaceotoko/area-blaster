@@ -355,31 +355,55 @@ function updateEnemies(dt) {
 
   const cw = cellW();
   const ch = cellH();
-  // 内部の移動可能範囲（外周の内側）
-  const minX = cw;
-  const minY = ch;
-  const maxX = (GRID_COLS - 1) * cw;
-  const maxY = (GRID_ROWS - 1) * ch;
+  // 内部の移動可能範囲（外周ボーダーの内側ピクセル境界）
+  const minX = cw + 0.5;
+  const minY = ch + 0.5;
+  const maxX = (GRID_COLS - 1) * cw - 0.5;
+  const maxY = (GRID_ROWS - 1) * ch - 0.5;
 
   for (const e of enemies) {
-    // 速度に基づいて移動
+    // --- X軸移動 ---
     e.px += e.vx;
+
+    // 外壁X反射
+    if (e.px <= minX) { e.px = minX; e.vx =  Math.abs(e.vx); }
+    if (e.px >= maxX) { e.px = maxX; e.vx = -Math.abs(e.vx); }
+
+    // FILLEDセルX反射（X方向のみ戻す）
+    const ecx = Math.floor(e.px / cw);
+    const ery = Math.floor(e.py / ch);
+    if (getCell(ecx, ery) === CELL.FILLED || getCell(ecx, ery) === CELL.BORDER) {
+      e.vx = -e.vx;
+      e.px += e.vx * 2; // 壁から押し出す
+    }
+
+    // --- Y軸移動 ---
     e.py += e.vy;
 
-    // 外壁で反射
-    if (e.px <= minX)  { e.px = minX;  e.vx =  Math.abs(e.vx); }
-    if (e.px >= maxX)  { e.px = maxX;  e.vx = -Math.abs(e.vx); }
-    if (e.py <= minY)  { e.py = minY;  e.vy =  Math.abs(e.vy); }
-    if (e.py >= maxY)  { e.py = maxY;  e.vy = -Math.abs(e.vy); }
+    // 外壁Y反射
+    if (e.py <= minY) { e.py = minY; e.vy =  Math.abs(e.vy); }
+    if (e.py >= maxY) { e.py = maxY; e.vy = -Math.abs(e.vy); }
 
-    // FILLEDセルに入ったら跳ね返す
-    const ec = Math.floor(e.px / cw);
-    const er = Math.floor(e.py / ch);
-    if (getCell(ec, er) === CELL.FILLED || getCell(ec, er) === CELL.BORDER) {
-      e.vx = -e.vx;
+    // FILLEDセルY反射（Y方向のみ戻す）
+    const ecx2 = Math.floor(e.px / cw);
+    const ery2 = Math.floor(e.py / ch);
+    if (getCell(ecx2, ery2) === CELL.FILLED || getCell(ecx2, ery2) === CELL.BORDER) {
       e.vy = -e.vy;
-      e.px += e.vx;
-      e.py += e.vy;
+      e.py += e.vy * 2; // 壁から押し出す
+    }
+
+    // --- 速度が0になった場合の保護（止まり防止） ---
+    if (Math.abs(e.vx) < 0.1 && Math.abs(e.vy) < 0.1) {
+      const angle = Math.random() * Math.PI * 2;
+      e.vx = Math.cos(angle) * e.speed;
+      e.vy = Math.sin(angle) * e.speed;
+    }
+
+    // --- 速度の正規化（スピードを一定に保つ） ---
+    const spd = Math.sqrt(e.vx * e.vx + e.vy * e.vy);
+    if (spd > 0) {
+      e.vx = (e.vx / spd) * e.speed;
+      e.vy = (e.vy / spd) * e.speed;
     }
   }
 }
