@@ -594,6 +594,72 @@ function checkCollisions() {
    ============================================================ */
 
 /** クリア判定 */
+/**
+ * ステージクリア時の美少女フルスクリーン演出を表示
+ */
+function showClearPerformance(rate, bonus) {
+  const stage = STAGES[Game.stageIndex];
+  const overlay = document.getElementById('clear-overlay');
+  const charaImg = document.getElementById('clear-chara-img');
+  const charaName = document.getElementById('clear-chara-name');
+  const speech = document.getElementById('clear-chara-speech');
+  const nextBtn = document.getElementById('btn-clear-next');
+
+  // キャラクター設定（ステージごとに変更）
+  const charaData = [
+    { name: 'アイリス', img: 'assets/images/clear_chara_1.png', speeches: ['クリア、おめでとう！', 'やるじゃない、見直したわ！'] },
+    { name: 'サクラ', img: 'assets/images/clear_chara_2.png', speeches: ['ここまで来るなんて、やるじゃない！', 'えへへ、君ならできると思ってたよ！'] },
+    { name: 'ルナ', img: 'assets/images/clear_chara_3.png', speeches: ['次のステージも、私と一緒に勝とうね。', 'まだまだ先は長いよ、油断しないでね。'] }
+  ];
+  
+  const currentChara = charaData[Game.stageIndex % charaData.length];
+  const randomSpeech = currentChara.speeches[Math.floor(Math.random() * currentChara.speeches.length)];
+
+  // データのセット
+  charaImg.src = currentChara.img;
+  charaName.textContent = currentChara.name;
+  speech.textContent = ''; // 一旦空にする（タイピング演出用）
+  
+  document.getElementById('clear-stat-area').textContent = `${Math.floor(rate * 100)}%`;
+  document.getElementById('clear-stat-bonus').textContent = `+${bonus.toLocaleString()}`;
+  document.getElementById('clear-stat-score').textContent = Game.score.toLocaleString();
+
+  const hasNext = Game.stageIndex + 1 < STAGES.length;
+  nextBtn.textContent = hasNext ? 'NEXT STAGE ▶' : 'BACK TO TITLE';
+  
+  // ボタンクリックイベントの再設定
+  const nextAction = () => {
+    overlay.classList.remove('active');
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      if (hasNext) {
+        nextStage();
+      } else {
+        goTitle();
+      }
+    }, 500);
+  };
+  
+  nextBtn.onclick = nextAction;
+
+  // 演出開始
+  overlay.classList.remove('hidden');
+  // リフロー強制
+  overlay.offsetWidth;
+  overlay.classList.add('active');
+
+  // セリフのタイピング演出
+  let i = 0;
+  const typeWriter = () => {
+    if (i < randomSpeech.length) {
+      speech.textContent += randomSpeech.charAt(i);
+      i++;
+      setTimeout(typeWriter, 50);
+    }
+  };
+  setTimeout(typeWriter, 1000); // キャラ登場後に開始
+}
+
 function checkClear() {
   const stage = STAGES[Game.stageIndex];
   const rate  = getFillRate();
@@ -605,20 +671,9 @@ function checkClear() {
   updateHUD();
 
   Game.state = STATE.CLEAR;
-  const hasNext = Game.stageIndex + 1 < STAGES.length;
-  showOverlay(
-    'STAGE CLEAR!',
-    `塗りつぶし率: ${Math.floor(rate * 100)}%\nボーナス: +${bonus.toLocaleString()}\nSCORE: ${Game.score.toLocaleString()}`,
-    hasNext
-      ? [
-          { label: '次のステージへ ▶', action: nextStage  },
-          { label: 'タイトルへ',        action: goTitle    },
-        ]
-      : [
-          { label: 'もう一度',          action: restartGame },
-          { label: 'タイトルへ',        action: goTitle     },
-        ]
-  );
+  
+  // 標準のオーバーレイの代わりにリッチな演出を表示
+  showClearPerformance(rate, bonus);
 }
 
 /** ミス処理 */

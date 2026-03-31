@@ -109,6 +109,29 @@
           <div class="overlay-btns" id="overlay-btns"></div>
         </div>
       </div>
+
+      <!-- ステージクリア演出用オーバーレイ -->
+      <div id="clear-overlay" class="clear-overlay hidden">
+        <div class="clear-bg-flash"></div>
+        <div class="clear-chara-container">
+          <img id="clear-chara-img" src="" alt="Clear Character" />
+        </div>
+        <div class="clear-content">
+          <div class="clear-title-text">STAGE CLEAR!</div>
+          <div class="clear-message-box">
+            <div id="clear-chara-name" class="clear-chara-name">CHARACTER NAME</div>
+            <div id="clear-chara-speech" class="clear-chara-speech"></div>
+          </div>
+          <div id="clear-stats" class="clear-stats">
+            <div class="stat-item">AREA: <span id="clear-stat-area">0%</span></div>
+            <div class="stat-item">BONUS: <span id="clear-stat-bonus">0</span></div>
+            <div class="stat-item">SCORE: <span id="clear-stat-score">0</span></div>
+          </div>
+          <div class="clear-footer">
+            <button id="btn-clear-next" class="clear-next-btn">NEXT STAGE ▶</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- スマホ用タッチコントローラー -->
