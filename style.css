@@ -20,7 +20,7 @@
   --color-hud-bg:    rgba(0, 0, 0, 0.85);
   --font-pixel:      'Courier New', Courier, monospace;
   --hud-height:      52px;
-  --touch-height:    90px;
+  --touch-height:    75px;
 }
 
 html, body {
@@ -431,7 +431,7 @@ html, body {
 @media (max-width: 600px) {
   :root {
     --hud-height: 44px;
-    --touch-height: 80px;
+    --touch-height: 70px;
   }
   .hud-value { font-size: 0.82rem; }
   .hud-label { font-size: 0.55rem; }
