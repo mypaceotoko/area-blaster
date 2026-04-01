@@ -226,6 +226,7 @@ html, body {
   align-items: stretch;
   justify-content: flex-start;
   background: var(--color-bg);
+  position: relative;
 }
 
 /* HUD */
@@ -351,13 +352,19 @@ html, body {
    タッチコントローラー（スマホ用）
    ============================================================ */
 #touch-controls {
-  height: var(--touch-height);
-  background: rgba(0, 0, 0, 0.7);
-  border-top: 1px solid rgba(0, 229, 255, 0.2);
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: none;
   display: none; /* JS で表示切り替え */
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  z-index: 30;
 }
 #dpad {
   display: flex;
