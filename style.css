@@ -351,7 +351,8 @@ html, body {
    タッチコントローラー（スマホ用）
    ============================================================ */
 #touch-controls {
-  height: var(--touch-height);
+  height: calc(var(--touch-height) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
   background: rgba(0, 0, 0, 0.7);
   border-top: 1px solid rgba(0, 229, 255, 0.2);
   display: none; /* JS で表示切り替え */
