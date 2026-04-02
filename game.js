@@ -753,13 +753,12 @@ function cellH() { return canvas.height / GRID_ROWS; }
 
 /** キャンバスをウィンドウサイズに合わせてリサイズ */
 function resizeCanvas() {
-  const wrap   = document.getElementById('canvas-wrap');
-  const style  = getComputedStyle(document.documentElement);
-  const hudH   = parseFloat(style.getPropertyValue('--hud-height'))   || 52;
-  const touchH = isTouchDevice()
-    ? (parseFloat(style.getPropertyValue('--touch-height')) || 140)
-    : 0;
-  const availH = window.innerHeight - hudH - touchH;
+  const wrap     = document.getElementById('canvas-wrap');
+  const hudEl    = document.getElementById('hud');
+  const touchEl  = document.getElementById('touch-controls');
+  const hudH     = hudEl   ? hudEl.offsetHeight   : 52;
+  const touchH   = (isTouchDevice() && touchEl) ? touchEl.offsetHeight : 0;
+  const availH   = window.innerHeight - hudH - touchH;
   const availW = wrap.clientWidth || window.innerWidth;
 
   const aspect = GRID_COLS / GRID_ROWS;
