@@ -96,6 +96,63 @@ const STAGES = [
   },
 ];
 
+/**
+ * 難易度設定テーブル
+ * enemySpeedMult : ステージの enemySpeed に掛ける倍率
+ * timeLimitSec   : ステージごとの制限時間（秒）。null = 無制限
+ * 新しい難易度を追加する場合はここにエントリを追加するだけ。
+ */
+const DIFFICULTY_SETTINGS = {
+  easy: {
+    label:          'EASY',
+    enemySpeedMult: 1.0,
+    timeLimitSec:   null,
+  },
+  normal: {
+    label:          'NORMAL',
+    enemySpeedMult: 1.15,
+    timeLimitSec:   60,
+  },
+  hard: {
+    label:          'HARD',
+    enemySpeedMult: 1.35,
+    timeLimitSec:   45,
+  },
+  veryHard: {
+    label:          'VERY HARD',
+    enemySpeedMult: 1.7,
+    timeLimitSec:   35,
+    giantEnemy:     true,   // 巨大敵を出現させる
+    giantCount:     1,      // 巨大敵の数
+    giantScale:     4.0,    // 通常敵サイズに対する半径倍率
+  },
+};
+
+/* VERY HARD 解放管理 */
+const VH_UNLOCK_KEY = 'areaBlaster_vhUnlocked';
+
+function isVeryHardUnlocked() {
+  try { return localStorage.getItem(VH_UNLOCK_KEY) === '1'; } catch (e) { return false; }
+}
+
+function unlockVeryHard() {
+  try { localStorage.setItem(VH_UNLOCK_KEY, '1'); } catch (e) {}
+  refreshVeryHardUI();
+  showUnlockNotice();
+}
+
+function refreshVeryHardUI() {
+  const btn = document.getElementById('diff-veryhard');
+  if (btn && isVeryHardUnlocked()) btn.style.display = '';
+}
+
+function showUnlockNotice() {
+  const el = document.getElementById('unlock-notice');
+  if (!el) return;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 3500);
+}
+
 /* グリッドの論理サイズ */
 const GRID_COLS = 40;
 const GRID_ROWS = 30;
@@ -128,6 +185,12 @@ const Game = {
   charaImages:     [],     // ステージ別キャラ画像キャッシュ
   charaAlpha:      0,      // キャラ表示透明度（0〜1）
   charaReveal:     0,      // 塗りつぶし率に応じた表示量（0〜1）
+  difficulty:      'easy', // 選択中の難易度キー
+  timer:           null,   // 残り時間(ms)。null = 無制限
+  maskCanvas:      null,   // ギャルズパニック風マスク用オフスクリーンキャンバス
+  maskCtx:         null,
+  maskAlpha:       1,      // マスク全体の透明度（クリア時フェードアウト用）
+  clearFading:     false,  // クリアフェード中フラグ
 };
 
 /** ステージキャラ画像を事前ロード */
@@ -138,6 +201,59 @@ function preloadCharaImages() {
     img.onerror = () => { Game.charaImages[i] = null; };
     img.src = stage.charaImage;
   });
+}
+
+/* ============================================================
+   ギャルズパニック風マスクキャンバス管理
+   ============================================================ */
+
+/**
+ * マスクキャンバスを初期化（ゲーム開始・ステージ開始時に呼ぶ）。
+ * キャンバス全体を半透明の黒で塗りつぶす。
+ * 93%不透明なので、7%だけ下の画像が透けてシルエットになる。
+ */
+function initMaskCanvas() {
+  if (!Game.maskCanvas) {
+    Game.maskCanvas = document.createElement('canvas');
+  }
+  Game.maskCanvas.width  = canvas.width;
+  Game.maskCanvas.height = canvas.height;
+  Game.maskCtx = Game.maskCanvas.getContext('2d');
+  Game.maskCtx.fillStyle = 'rgba(0,0,0,0.93)';
+  Game.maskCtx.fillRect(0, 0, canvas.width, canvas.height);
+  Game.maskAlpha   = 1;
+  Game.clearFading = false;
+}
+
+/**
+ * 現在のグリッド状態に応じてマスクに穴を開ける。
+ * FILLED・BORDER セルはプレイヤーが塗った（または外周）領域なので画像を表示する。
+ * destination-out で該当ピクセルを透明にする。
+ */
+function revealMaskCells() {
+  if (!Game.maskCtx) return;
+  const mc = Game.maskCtx;
+  const cw = canvas.width  / GRID_COLS;
+  const ch = canvas.height / GRID_ROWS;
+
+  mc.globalCompositeOperation = 'destination-out';
+  mc.fillStyle = 'rgba(0,0,0,1)';
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const cell = grid[r * GRID_COLS + c];
+      if (cell === CELL.FILLED || cell === CELL.BORDER) {
+        // 0.5px のパディングでセル境界のギャップを防ぐ
+        mc.fillRect(c * cw - 0.5, r * ch - 0.5, cw + 1, ch + 1);
+      }
+    }
+  }
+  mc.globalCompositeOperation = 'source-over';
+}
+
+/** リサイズ時にマスクキャンバスをグリッド状態から再構築する */
+function rebuildMaskCanvas() {
+  initMaskCanvas();
+  revealMaskCells();
 }
 
 /* ============================================================
@@ -287,6 +403,7 @@ function stepPlayer() {
       Player.trail.push({ c: nc, r: nr });
       Player.col = nc;
       Player.row = nr;
+      SoundEngine.seTrailStart();
     } else if (nextCell === CELL.BORDER || nextCell === CELL.FILLED) {
       // 安全地帯内を移動
       Player.col = nc;
@@ -331,6 +448,10 @@ let enemies = [];
 /** 敵を初期化 */
 function initEnemies(stage) {
   enemies = [];
+  const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+  const spd  = stage.enemySpeed * diff.enemySpeedMult;
+
+  // 通常敵
   for (let i = 0; i < stage.enemyCount; i++) {
     let c, r, tries = 0;
     do {
@@ -341,12 +462,33 @@ function initEnemies(stage) {
 
     const angle = Math.random() * Math.PI * 2;
     enemies.push({
-      px:    (c + 0.5) * cellW(),
-      py:    (r + 0.5) * cellH(),
-      vx:    Math.cos(angle) * stage.enemySpeed,
-      vy:    Math.sin(angle) * stage.enemySpeed,
-      speed: stage.enemySpeed,
+      px: (c + 0.5) * cellW(), py: (r + 0.5) * cellH(),
+      vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
+      speed: spd,
     });
+  }
+
+  // VERY HARD 専用：巨大敵
+  if (diff.giantEnemy) {
+    const giantCount = diff.giantCount || 1;
+    const giantScale = diff.giantScale || 4.0;
+    const gSpd       = spd * 0.62; // 巨大なので遅め
+    for (let g = 0; g < giantCount; g++) {
+      let c, r, tries = 0;
+      do {
+        c = 6 + Math.floor(Math.random() * (GRID_COLS - 12));
+        r = 6 + Math.floor(Math.random() * (GRID_ROWS - 12));
+        tries++;
+      } while (getCell(c, r) !== CELL.EMPTY && tries < 300);
+      const angle = Math.random() * Math.PI * 2;
+      enemies.push({
+        px: (c + 0.5) * cellW(), py: (r + 0.5) * cellH(),
+        vx: Math.cos(angle) * gSpd, vy: Math.sin(angle) * gSpd,
+        speed: gSpd,
+        isGiant: true,
+        scale:   giantScale,
+      });
+    }
   }
 }
 
@@ -441,6 +583,9 @@ function closeArea() {
   // 敵がいない側をフラッドフィルで塗りつぶす
   const gained = floodFillSafe();
 
+  // 塗りつぶしたセルのマスクを穴抜き（ギャルズパニック風リビール）
+  revealMaskCells();
+
   // スコア加算
   const pts = gained * SCORE_PER_CELL;
   Game.score += pts;
@@ -453,6 +598,8 @@ function closeArea() {
   if (pts > 0) {
     spawnScorePopup(Player.px, Player.py, '+' + pts);
   }
+
+  if (gained > 0) SoundEngine.seFill();
 
   // クリア判定
   checkClear();
@@ -546,43 +693,58 @@ function checkCollisions() {
     return;
   }
 
-  const cw = cellW();
-  const ch = cellH();
-  // ヒット半径を小さめに（見た目より少し小さい当たり判定で理不尽感を減らす）
-  const hitR = Math.min(cw, ch) * 0.38;
+  const cw    = cellW();
+  const ch    = cellH();
+  const baseR = Math.min(cw, ch) * 0.38; // 通常敵ヒット半径
 
-  // プレイヤーが安全地帯（BORDER/FILLED）にいるときは本体接触判定しない
   const playerOnSafe = (() => {
     const pc = getCell(Player.col, Player.row);
     return pc === CELL.BORDER || pc === CELL.FILLED;
   })();
 
   for (const e of enemies) {
-    // --- プレイヤー本体との距離判定（線描画中のみ、または安全地帯外） ---
+    // 巨大敵は実際のサイズに合わせた当たり判定（少し寛大に0.8倍）
+    const eR = e.isGiant ? Math.max(10, baseR * (e.scale || 4.0)) * 0.8 : baseR;
+
+    // --- プレイヤー本体との距離判定 ---
     if (!playerOnSafe) {
       const dx = e.px - Player.px;
       const dy = e.py - Player.py;
-      if (dx * dx + dy * dy < hitR * hitR) {
+      if (dx * dx + dy * dy < eR * eR) {
         triggerMiss();
         return;
       }
     }
 
-    // --- 線描画中：敵がTRAILセルの中心に十分近づいたら判定 ---
+    // --- 線描画中のTRAIL接触判定 ---
     if (Player.isDrawing) {
-      const ec = Math.floor(e.px / cw);
-      const er = Math.floor(e.py / ch);
-      // 敵の中心セルのみ確認（周囲1セルへの拡張は誤判定の原因になるため廃止）
-      if (getCell(ec, er) === CELL.TRAIL) {
-        // セル中心との距離で判定（セルの50%以内に入ったらヒット）
-        const tx  = (ec + 0.5) * cw;
-        const ty  = (er + 0.5) * ch;
-        const ddx = e.px - tx;
-        const ddy = e.py - ty;
-        const trailHitR = Math.min(cw, ch) * 0.5;
-        if (ddx * ddx + ddy * ddy < trailHitR * trailHitR) {
-          triggerMiss();
-          return;
+      if (e.isGiant) {
+        // 巨大敵：半径内のセルをすべてチェック
+        const cellRadius = Math.ceil(eR / Math.min(cw, ch));
+        const gc = Math.floor(e.px / cw);
+        const gr = Math.floor(e.py / ch);
+        for (let dr = -cellRadius; dr <= cellRadius; dr++) {
+          for (let dc = -cellRadius; dc <= cellRadius; dc++) {
+            const cc = gc + dc; const cr = gr + dr;
+            if (cc < 0 || cr < 0 || cc >= GRID_COLS || cr >= GRID_ROWS) continue;
+            if (getCell(cc, cr) === CELL.TRAIL) {
+              triggerMiss(); return;
+            }
+          }
+        }
+      } else {
+        // 通常敵：中心セルのみチェック
+        const ec = Math.floor(e.px / cw);
+        const er = Math.floor(e.py / ch);
+        if (getCell(ec, er) === CELL.TRAIL) {
+          const tx  = (ec + 0.5) * cw;
+          const ty  = (er + 0.5) * ch;
+          const ddx = e.px - tx;
+          const ddy = e.py - ty;
+          const trailHitR = Math.min(cw, ch) * 0.5;
+          if (ddx * ddx + ddy * ddy < trailHitR * trailHitR) {
+            triggerMiss(); return;
+          }
         }
       }
     }
@@ -660,6 +822,29 @@ function showClearPerformance(rate, bonus) {
   setTimeout(typeWriter, 1000); // キャラ登場後に開始
 }
 
+/**
+ * クリア時のマスクフェードアウト演出。
+ * マスク全体を1.2秒かけて透明にし、キャラを全体表示してからクリア画面を出す。
+ */
+function startClearReveal(rate, bonus) {
+  Game.clearFading = true;
+  const FADE_MS   = 1200;
+  const startTime = performance.now();
+
+  (function fadeTick() {
+    const t = Math.min((performance.now() - startTime) / FADE_MS, 1);
+    // ease-out cubic
+    Game.maskAlpha = 1 - (t * t * (3 - 2 * t));
+    if (t < 1) {
+      requestAnimationFrame(fadeTick);
+    } else {
+      Game.maskAlpha   = 0;
+      Game.clearFading = false;
+      showClearPerformance(rate, bonus);
+    }
+  })();
+}
+
 function checkClear() {
   const stage = STAGES[Game.stageIndex];
   const rate  = getFillRate();
@@ -670,10 +855,18 @@ function checkClear() {
   if (Game.score > Game.hiScore) Game.hiScore = Game.score;
   updateHUD();
 
+  // HARD で最終ステージをクリアしたら VERY HARD を解放
+  const isLastStage = Game.stageIndex >= STAGES.length - 1;
+  if (isLastStage && Game.difficulty === 'hard' && !isVeryHardUnlocked()) {
+    setTimeout(unlockVeryHard, 1500);
+  }
+
   Game.state = STATE.CLEAR;
-  
-  // 標準のオーバーレイの代わりにリッチな演出を表示
-  showClearPerformance(rate, bonus);
+  SoundEngine.stopBGM();
+  SoundEngine.seClear();
+
+  // マスクをフェードアウトしてから演出表示（ギャルズパニック風フルリビール）
+  startClearReveal(rate, bonus);
 }
 
 /** ミス処理 */
@@ -686,12 +879,15 @@ function triggerMiss() {
   Game.lives--;
   updateHUD();
   flashCanvas();
+  SoundEngine.stopBGM();
+  SoundEngine.seMiss();
 
   const delay = 900;
   if (Game.lives <= 0) {
     setTimeout(() => {
       Game.state    = STATE.GAMEOVER;
       Game.missLock = false;
+      SoundEngine.seGameOver();
       showOverlay('GAME OVER', `SCORE: ${Game.score.toLocaleString()}`, [
         { label: 'もう一度',   action: restartGame },
         { label: 'タイトルへ', action: goTitle     },
@@ -703,6 +899,12 @@ function triggerMiss() {
       Game.state      = STATE.PLAYING;
       Game.invincible = INVINCIBLE_FRAMES;
       Game.missLock   = false;
+      // 難易度に時間制限がある場合、残機消費後にタイマーをリセット
+      const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+      if (diff.timeLimitSec !== null) {
+        Game.timer = diff.timeLimitSec * 1000;
+      }
+      SoundEngine.startBGM();
     }, delay);
   }
 }
@@ -735,6 +937,7 @@ function restartGame() {
 /** タイトルへ */
 function goTitle() {
   hideOverlay();
+  SoundEngine.stopBGM();
   cancelAnimationFrame(Game.animId);
   Game.animId = null;
   Game.state  = STATE.TITLE;
@@ -742,7 +945,171 @@ function goTitle() {
 }
 
 /* ============================================================
-   9. 描画（レンダリング）
+   9. オーディオエンジン（Web Audio API チップチューン）
+   ============================================================ */
+
+const SoundEngine = (() => {
+  let _ctx = null;
+  let _master = null;
+  let _muted = false;
+  let _bgmTimer = null;
+  let _bgmStep = 0;
+
+  function _getCtx() {
+    if (!_ctx) {
+      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+      _master = _ctx.createGain();
+      _master.gain.value = 0.38;
+      _master.connect(_ctx.destination);
+    }
+    if (_ctx.state === 'suspended') _ctx.resume();
+    return _ctx;
+  }
+
+  function _note(freq, dur, type = 'square', vol = 0.28, t0 = 0) {
+    if (_muted || !freq) return;
+    const ac = _getCtx();
+    const play = () => {
+      if (_muted) return;
+      const osc = ac.createOscillator();
+      const g   = ac.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      const st = ac.currentTime + t0;
+      g.gain.setValueAtTime(vol, st);
+      g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+      osc.connect(g); g.connect(_master);
+      osc.start(st); osc.stop(st + dur + 0.05);
+    };
+    ac.state === 'suspended' ? ac.resume().then(play) : play();
+  }
+
+  function _sweep(f1, f2, dur, type = 'sawtooth', vol = 0.28, t0 = 0) {
+    if (_muted) return;
+    const ac = _getCtx();
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.type = type;
+    const st = ac.currentTime + t0;
+    osc.frequency.setValueAtTime(f1, st);
+    osc.frequency.exponentialRampToValueAtTime(f2, st + dur);
+    g.gain.setValueAtTime(vol, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+    osc.connect(g); g.connect(_master);
+    osc.start(st); osc.stop(st + dur + 0.05);
+  }
+
+  function _noise(dur, vol = 0.15, t0 = 0) {
+    if (_muted) return;
+    const ac  = _getCtx();
+    const len = Math.ceil(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const g = ac.createGain();
+    const st = ac.currentTime + t0;
+    g.gain.setValueAtTime(vol, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+    src.connect(g); g.connect(_master);
+    src.start(st); src.stop(st + dur + 0.05);
+  }
+
+  /* ---- SE ---- */
+
+  function seTrailStart() {
+    _note(880,  0.055, 'square', 0.18);
+    _note(1320, 0.055, 'square', 0.13, 0.055);
+  }
+
+  function seFill() {
+    [523, 659, 784, 1047].forEach((f, i) => _note(f, 0.12, 'square', 0.24, i * 0.065));
+    _noise(0.04, 0.1, 0.27);
+  }
+
+  function seMiss() {
+    _sweep(440, 60, 0.42, 'sawtooth', 0.28);
+    _noise(0.28, 0.2);
+  }
+
+  function seClear() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => _note(f, 0.14, 'square', 0.28, i * 0.09));
+    _note(1319, 0.38, 'square', 0.3, 5 * 0.09);
+    [262, 330, 392, 523].forEach((f, i) => _note(f, 0.12, 'triangle', 0.18, i * 0.18));
+  }
+
+  function seGameOver() {
+    [392, 330, 294, 262, 196].forEach((f, i) => _note(f, 0.22, 'square', 0.28, i * 0.2));
+  }
+
+  /* ---- BGM ---- */
+  // BPM 138、16分音符単位のシーケンサ
+  const _BPM  = 138;
+  const _STEP = 60 / _BPM / 4;   // 16th note sec
+
+  // メロディ（E minor風、32ステップループ）
+  const _MEL = [
+    659, 784, 880, 784,   659, 587, 523, null,
+    587, 659, 784, 659,   587, 523, 494, null,
+    523, 659, 784, 880,   988, 880, 784, 659,
+    784, 880, 988, 1047,  880, 784, 659, null,
+  ];
+
+  // ベース（16ステップ、2ステップごと）
+  const _BASS = [
+    164, null, 196, null,   220, null, 196, null,
+    174, null, 196, null,   220, null, 247, null,
+  ];
+
+  function _bgmTick() {
+    const i = _bgmStep % _MEL.length;
+    const b = Math.floor(_bgmStep / 2) % _BASS.length;
+
+    if (_MEL[i])  _note(_MEL[i],  _STEP * 0.82, 'square',   0.16);
+    if (_BASS[b] && _bgmStep % 2 === 0)
+                  _note(_BASS[b], _STEP * 1.9,  'triangle', 0.11);
+
+    // パーカッション
+    if (i % 8 === 0) _noise(0.05, 0.14);        // キック
+    if (i % 8 === 4) _noise(0.03, 0.09);        // スネア
+    if (i % 2 === 1) _noise(0.012, 0.04);       // ハイハット
+
+    _bgmStep++;
+    _bgmTimer = setTimeout(_bgmTick, _STEP * 1000);
+  }
+
+  function startBGM() {
+    stopBGM();
+    if (_muted) return;
+    _bgmStep = 0;
+    _getCtx().resume().then(() => { if (!_muted && !_bgmTimer) _bgmTick(); });
+  }
+
+  function stopBGM() {
+    if (_bgmTimer) { clearTimeout(_bgmTimer); _bgmTimer = null; }
+  }
+
+  function pauseBGM()  { stopBGM(); }
+  function resumeBGM() {
+    if (_muted) return;
+    _getCtx().resume().then(() => { if (!_muted && !_bgmTimer) _bgmTick(); });
+  }
+
+  function toggleMute() {
+    _muted = !_muted;
+    if (_muted) stopBGM();
+    else if (typeof Game !== 'undefined' && Game.state === STATE.PLAYING) resumeBGM();
+    return _muted;
+  }
+
+  return { seTrailStart, seFill, seMiss, seClear, seGameOver,
+           startBGM, stopBGM, pauseBGM, resumeBGM, toggleMute,
+           get muted() { return _muted; } };
+})();
+
+/* ============================================================
+   10. 描画（レンダリング）
    ============================================================ */
 
 const canvas = document.getElementById('game-canvas');
@@ -753,13 +1120,12 @@ function cellH() { return canvas.height / GRID_ROWS; }
 
 /** キャンバスをウィンドウサイズに合わせてリサイズ */
 function resizeCanvas() {
-  const wrap   = document.getElementById('canvas-wrap');
-  const style  = getComputedStyle(document.documentElement);
-  const hudH   = parseFloat(style.getPropertyValue('--hud-height'))   || 52;
-  const touchH = isTouchDevice()
-    ? (parseFloat(style.getPropertyValue('--touch-height')) || 140)
-    : 0;
-  const availH = window.innerHeight - hudH - touchH;
+  const wrap     = document.getElementById('canvas-wrap');
+  const hudEl    = document.getElementById('hud');
+  const touchEl  = document.getElementById('touch-controls');
+  const hudH     = hudEl   ? hudEl.offsetHeight   : 52;
+  const touchH   = (isTouchDevice() && touchEl) ? touchEl.offsetHeight : 0;
+  const availH   = window.innerHeight - hudH - touchH;
   const availW = wrap.clientWidth || window.innerWidth;
 
   const aspect = GRID_COLS / GRID_ROWS;
@@ -795,36 +1161,24 @@ function render() {
 }
 
 /**
- * キャラ画像をキャンバス背景に描画する。
- * 塗りつぶし率（getFillRate）が上がるにつれて徐々に透明度が増し、
- * クリア直前には鮮明に見えるようになる演出。
+ * ギャルズパニック風：マスクキャンバスを使ってキャラ画像を段階的に表示する。
+ * - 画像はキャンバス全体に引き伸ばして描画する
+ * - マスクは初期状態で93%不透明（7%シルエット効果）
+ * - 塗りつぶしたセルに対応するマスク部分が穴抜きされ画像が見える
+ * - ステージクリア時はマスク全体をフェードアウトして全体表示
  */
 function renderCharaBackground(stage) {
   const img = Game.charaImages[Game.stageIndex];
   if (!img) return;
 
-  // 塗りつぶし率に応じて透明度を計算（0% → 0.05, 50% → 0.35, 100% → 0.75）
-  const fillRate = getFillRate();
-  const targetAlpha = 0.05 + fillRate * 0.70;
-
-  // スムーズに変化させる（イージング）
-  Game.charaAlpha += (targetAlpha - Game.charaAlpha) * 0.03;
-
-  if (Game.charaAlpha < 0.02) return;
-
   ctx.save();
-  ctx.globalAlpha = Game.charaAlpha;
-
-  // キャンバス右側にキャラを配置（ゲームの邪魔にならない位置）
-  const cw = canvas.width;
-  const ch = canvas.height;
-  const imgAspect = img.naturalWidth / img.naturalHeight;
-  const drawH = ch * 0.85;
-  const drawW = drawH * imgAspect;
-  const drawX = cw - drawW * 0.85;  // 右端に少しはみ出す形で配置
-  const drawY = (ch - drawH) / 2;
-
-  ctx.drawImage(img, drawX, drawY, drawW, drawH);
+  // キャンバス全体に画像を引き伸ばして描画
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  // マスクを重ねる（穴抜き部分は透明なので画像が見える）
+  if (Game.maskCanvas && Game.maskAlpha > 0.001) {
+    ctx.globalAlpha = Game.maskAlpha;
+    ctx.drawImage(Game.maskCanvas, 0, 0);
+  }
   ctx.restore();
 }
 
@@ -892,50 +1246,97 @@ function renderGrid(cw, ch, stage) {
 
 /** 敵を描画 */
 function renderEnemies(cw, ch) {
-  const r = Math.max(5, Math.min(cw, ch) * 0.38);
+  const baseR = Math.max(5, Math.min(cw, ch) * 0.38);
 
   for (const e of enemies) {
-    // グロー
-    ctx.shadowColor = '#ff5252';
-    ctx.shadowBlur  = 12;
+    const r = e.isGiant ? Math.max(10, baseR * (e.scale || 4.0)) : baseR;
 
-    // 本体
-    const grad = ctx.createRadialGradient(
-      e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
-      e.px, e.py, r
-    );
-    grad.addColorStop(0, '#ff8a80');
-    grad.addColorStop(1, '#b71c1c');
-    ctx.beginPath();
-    ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
+    if (e.isGiant) {
+      // ---- 巨大敵（VERY HARD専用） ----
+      ctx.shadowColor = '#cc00ff';
+      ctx.shadowBlur  = r * 0.6;
 
-    ctx.shadowBlur = 0;
+      const grad = ctx.createRadialGradient(
+        e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
+        e.px, e.py, r
+      );
+      grad.addColorStop(0, '#ea80ff');
+      grad.addColorStop(0.5, '#7b00b0');
+      grad.addColorStop(1, '#2a0040');
+      ctx.beginPath();
+      ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.shadowBlur = 0;
 
-    // 白目
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(e.px + r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    ctx.fill();
+      // 金色の目（凶悪な表情）
+      ctx.fillStyle = '#ffdd00';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.28, e.py - r * 0.12, r * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.28, e.py - r * 0.12, r * 0.2, 0, Math.PI * 2);
+      ctx.fill();
 
-    // 瞳
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(e.px + r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
-    ctx.fill();
+      // 縦型の瞳（不気味さを強調）
+      ctx.fillStyle = '#0d0020';
+      ctx.beginPath();
+      ctx.ellipse(e.px - r * 0.26, e.py - r * 0.08, r * 0.07, r * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(e.px + r * 0.26, e.py - r * 0.08, r * 0.07, r * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
 
-    // ハイライト
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.3, e.py - r * 0.3, r * 0.18, 0, Math.PI * 2);
-    ctx.fill();
+      // 怒り口（下向き弧）
+      ctx.strokeStyle = '#ffdd00';
+      ctx.lineWidth   = r * 0.055;
+      ctx.beginPath();
+      ctx.arc(e.px, e.py + r * 0.22, r * 0.28, Math.PI, Math.PI * 2);
+      ctx.stroke();
+
+      // ハイライト
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.3, e.py - r * 0.32, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // ---- 通常敵 ----
+      ctx.shadowColor = '#ff5252';
+      ctx.shadowBlur  = 12;
+
+      const grad = ctx.createRadialGradient(
+        e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
+        e.px, e.py, r
+      );
+      grad.addColorStop(0, '#ff8a80');
+      grad.addColorStop(1, '#b71c1c');
+      ctx.beginPath();
+      ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.3, e.py - r * 0.3, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -996,6 +1397,18 @@ function triggerFillFlash() {
   Game.fillFlashTimer = 14;
 }
 
+/** 時間切れ処理（ミス扱い） */
+function triggerTimeUp() {
+  if (Game.state !== STATE.PLAYING || Game.missLock) return;
+  // TIME UP ラベルを短時間表示
+  const el = document.getElementById('timeup-label');
+  if (el) {
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 900);
+  }
+  triggerMiss();
+}
+
 /** キャンバスラッパーを赤くフラッシュ */
 function flashCanvas() {
   const wrap = document.getElementById('canvas-wrap');
@@ -1044,6 +1457,18 @@ function updateHUD() {
   const hearts = '❤️'.repeat(Math.max(0, Game.lives))
                + '🖤'.repeat(Math.max(0, INITIAL_LIVES - Game.lives));
   document.getElementById('hud-lives').textContent = hearts;
+
+  // タイマー表示（NORMAL / HARD のみ）
+  const timerWrap = document.getElementById('hud-timer-wrap');
+  const timerEl   = document.getElementById('hud-timer');
+  if (Game.timer !== null && timerWrap && timerEl) {
+    timerWrap.style.display = '';
+    const secs = Math.max(0, Math.ceil(Game.timer / 1000));
+    timerEl.textContent = secs;
+    timerEl.style.color = secs <= 10 ? 'var(--color-danger)' : 'var(--color-primary)';
+  } else if (timerWrap) {
+    timerWrap.style.display = 'none';
+  }
 }
 
 /* ============================================================
@@ -1099,6 +1524,7 @@ function applyInput() {
 function togglePause() {
   if (Game.state === STATE.PLAYING) {
     Game.state = STATE.PAUSED;
+    SoundEngine.pauseBGM();
     showOverlay('PAUSE', 'SPACE キーで再開 / R でリスタート', [
       { label: '▶ 再開',         action: resumeGame  },
       { label: '↺ リスタート',   action: restartGame },
@@ -1112,6 +1538,7 @@ function togglePause() {
 function resumeGame() {
   hideOverlay();
   Game.state = STATE.PLAYING;
+  SoundEngine.resumeBGM();
 }
 
 /* ---- タッチコントロール ---- */
@@ -1197,6 +1624,14 @@ function gameLoop(timestamp) {
     updatePlayer(dt);
     updateEnemies(dt);
     checkCollisions();
+    // タイマーカウントダウン（NORMAL / HARD）
+    if (Game.timer !== null) {
+      Game.timer -= dt * 1000;
+      if (Game.timer <= 0) {
+        Game.timer = 0;
+        triggerTimeUp();
+      }
+    }
     updateHUD();
   }
 
@@ -1219,11 +1654,18 @@ function startStage(index) {
   Game.fillFlashCells = null;
   Game.charaAlpha     = 0;   // キャラ透明度をリセット（新ステージ開始時）
 
+  // 難易度に応じてタイマーをリセット
+  const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+  Game.timer = diff.timeLimitSec !== null ? diff.timeLimitSec * 1000 : null;
+
   initGrid();
+  initMaskCanvas();    // マスクキャンバスを初期化（全面黒）
+  revealMaskCells();   // 外周ボーダーセルを初期リビール
   initPlayer();
   initEnemies(STAGES[index]);
   updateHUD();
   hideOverlay();
+  SoundEngine.startBGM();
 }
 
 /**
@@ -1248,6 +1690,8 @@ function init() {
 
   window.addEventListener('resize', () => {
     resizeCanvas();
+    // マスクキャンバスをリサイズ後のキャンバスに合わせて再構築
+    if (Game.maskCanvas) rebuildMaskCanvas();
     if (Game.state === STATE.PLAYING || Game.state === STATE.PAUSED) {
       syncPlayerPx();
       // 敵のピクセル座標もグリッドに合わせて再スケール（簡易版）
@@ -1266,6 +1710,43 @@ function init() {
   tryLoadTitleChara();
   preloadCharaImages();  // ステージ別キャラ画像を事前ロード
 
+  // VERY HARD 解放チェック（ページ読み込み時）
+  refreshVeryHardUI();
+
+  // 難易度選択ボタン
+  const DIFF_DESC = {
+    easy:     '時間制限なし・通常スピード',
+    normal:   '時間制限60秒・スピード+15%',
+    hard:     '時間制限45秒・スピード+35%',
+    veryHard: '時間制限35秒・スピード+70%・巨大敵出現',
+  };
+  const diffDescEl = document.getElementById('diff-desc');
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      Game.difficulty = btn.dataset.diff;
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      if (diffDescEl) diffDescEl.textContent = DIFF_DESC[btn.dataset.diff] || '';
+    });
+  });
+
+  // 裏コマンド：タイトルの秘密タップゾーンを5回で VERY HARD 解放
+  let secretTapCount = 0;
+  let secretTapTimer = null;
+  const secretZone = document.getElementById('secret-tap-zone');
+  if (secretZone) {
+    secretZone.addEventListener('click', () => {
+      if (isVeryHardUnlocked()) return;
+      secretTapCount++;
+      clearTimeout(secretTapTimer);
+      secretTapTimer = setTimeout(() => { secretTapCount = 0; }, 6000);
+      if (secretTapCount >= 5) {
+        secretTapCount = 0;
+        unlockVeryHard();
+      }
+    });
+  }
+
   // タイトルボタン
   document.getElementById('btn-start').addEventListener('click', () => {
     showScreen('screen-game');
@@ -1278,6 +1759,14 @@ function init() {
     Game.animId = requestAnimationFrame(gameLoop);
     // キャンバスにフォーカスを当ててキーボード入力を確実に受け取る
     setTimeout(() => canvas.focus(), 100);
+  });
+
+  // ミュートボタン
+  const muteBtn = document.getElementById('btn-mute');
+  muteBtn.addEventListener('click', () => {
+    const muted = SoundEngine.toggleMute();
+    muteBtn.textContent = muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', muted);
   });
 
   document.getElementById('btn-howto').addEventListener('click', () => {
