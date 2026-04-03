@@ -25,6 +25,17 @@
         </div>
       </div>
 
+      <!-- 難易度選択 -->
+      <div class="difficulty-select">
+        <div class="diff-label">DIFFICULTY</div>
+        <div class="diff-btns">
+          <button class="diff-btn selected" data-diff="easy">EASY</button>
+          <button class="diff-btn" data-diff="normal">NORMAL</button>
+          <button class="diff-btn" data-diff="hard">HARD</button>
+        </div>
+        <div class="diff-desc" id="diff-desc">時間制限なし・通常スピード</div>
+      </div>
+
       <div class="title-menu">
         <button class="menu-btn" id="btn-start">▶ ゲームスタート</button>
         <button class="menu-btn" id="btn-howto">？ 遊び方</button>
@@ -95,12 +106,19 @@
         <span class="hud-label">HI</span>
         <span class="hud-value" id="hud-hiscore">0</span>
       </div>
+      <div class="hud-item" id="hud-timer-wrap" style="display:none">
+        <span class="hud-label">TIME</span>
+        <span class="hud-value" id="hud-timer">--</span>
+      </div>
       <button id="btn-mute" class="mute-btn" title="ミュート">🔊</button>
     </div>
 
     <!-- ゲームキャンバス -->
     <div id="canvas-wrap">
       <canvas id="game-canvas" tabindex="0"></canvas>
+
+      <!-- TIME UP ラベル -->
+      <div id="timeup-label" class="timeup-label">TIME UP!</div>
 
       <!-- オーバーレイメッセージ（ポーズ・クリア・ゲームオーバー等） -->
       <div id="overlay" class="overlay hidden">

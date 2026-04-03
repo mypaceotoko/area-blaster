@@ -96,6 +96,30 @@ const STAGES = [
   },
 ];
 
+/**
+ * 難易度設定テーブル
+ * enemySpeedMult : ステージの enemySpeed に掛ける倍率
+ * timeLimitSec   : ステージごとの制限時間（秒）。null = 無制限
+ * 新しい難易度を追加する場合はここにエントリを追加するだけ。
+ */
+const DIFFICULTY_SETTINGS = {
+  easy: {
+    label:          'EASY',
+    enemySpeedMult: 1.0,
+    timeLimitSec:   null,
+  },
+  normal: {
+    label:          'NORMAL',
+    enemySpeedMult: 1.15,
+    timeLimitSec:   60,
+  },
+  hard: {
+    label:          'HARD',
+    enemySpeedMult: 1.35,
+    timeLimitSec:   45,
+  },
+};
+
 /* グリッドの論理サイズ */
 const GRID_COLS = 40;
 const GRID_ROWS = 30;
@@ -128,6 +152,8 @@ const Game = {
   charaImages:     [],     // ステージ別キャラ画像キャッシュ
   charaAlpha:      0,      // キャラ表示透明度（0〜1）
   charaReveal:     0,      // 塗りつぶし率に応じた表示量（0〜1）
+  difficulty:      'easy', // 選択中の難易度キー
+  timer:           null,   // 残り時間(ms)。null = 無制限
 };
 
 /** ステージキャラ画像を事前ロード */
@@ -341,12 +367,13 @@ function initEnemies(stage) {
     } while (getCell(c, r) !== CELL.EMPTY && tries < 300);
 
     const angle = Math.random() * Math.PI * 2;
+    const spd   = stage.enemySpeed * DIFFICULTY_SETTINGS[Game.difficulty].enemySpeedMult;
     enemies.push({
       px:    (c + 0.5) * cellW(),
       py:    (r + 0.5) * cellH(),
-      vx:    Math.cos(angle) * stage.enemySpeed,
-      vy:    Math.sin(angle) * stage.enemySpeed,
-      speed: stage.enemySpeed,
+      vx:    Math.cos(angle) * spd,
+      vy:    Math.sin(angle) * spd,
+      speed: spd,
     });
   }
 }
@@ -711,6 +738,11 @@ function triggerMiss() {
       Game.state      = STATE.PLAYING;
       Game.invincible = INVINCIBLE_FRAMES;
       Game.missLock   = false;
+      // 難易度に時間制限がある場合、残機消費後にタイマーをリセット
+      const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+      if (diff.timeLimitSec !== null) {
+        Game.timer = diff.timeLimitSec * 1000;
+      }
       SoundEngine.startBGM();
     }, delay);
   }
@@ -1169,6 +1201,18 @@ function triggerFillFlash() {
   Game.fillFlashTimer = 14;
 }
 
+/** 時間切れ処理（ミス扱い） */
+function triggerTimeUp() {
+  if (Game.state !== STATE.PLAYING || Game.missLock) return;
+  // TIME UP ラベルを短時間表示
+  const el = document.getElementById('timeup-label');
+  if (el) {
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 900);
+  }
+  triggerMiss();
+}
+
 /** キャンバスラッパーを赤くフラッシュ */
 function flashCanvas() {
   const wrap = document.getElementById('canvas-wrap');
@@ -1217,6 +1261,18 @@ function updateHUD() {
   const hearts = '❤️'.repeat(Math.max(0, Game.lives))
                + '🖤'.repeat(Math.max(0, INITIAL_LIVES - Game.lives));
   document.getElementById('hud-lives').textContent = hearts;
+
+  // タイマー表示（NORMAL / HARD のみ）
+  const timerWrap = document.getElementById('hud-timer-wrap');
+  const timerEl   = document.getElementById('hud-timer');
+  if (Game.timer !== null && timerWrap && timerEl) {
+    timerWrap.style.display = '';
+    const secs = Math.max(0, Math.ceil(Game.timer / 1000));
+    timerEl.textContent = secs;
+    timerEl.style.color = secs <= 10 ? 'var(--color-danger)' : 'var(--color-primary)';
+  } else if (timerWrap) {
+    timerWrap.style.display = 'none';
+  }
 }
 
 /* ============================================================
@@ -1372,6 +1428,14 @@ function gameLoop(timestamp) {
     updatePlayer(dt);
     updateEnemies(dt);
     checkCollisions();
+    // タイマーカウントダウン（NORMAL / HARD）
+    if (Game.timer !== null) {
+      Game.timer -= dt * 1000;
+      if (Game.timer <= 0) {
+        Game.timer = 0;
+        triggerTimeUp();
+      }
+    }
     updateHUD();
   }
 
@@ -1393,6 +1457,10 @@ function startStage(index) {
   Game.fillFlashTimer = 0;
   Game.fillFlashCells = null;
   Game.charaAlpha     = 0;   // キャラ透明度をリセット（新ステージ開始時）
+
+  // 難易度に応じてタイマーをリセット
+  const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+  Game.timer = diff.timeLimitSec !== null ? diff.timeLimitSec * 1000 : null;
 
   initGrid();
   initPlayer();
@@ -1441,6 +1509,22 @@ function init() {
   setupTouchControls();
   tryLoadTitleChara();
   preloadCharaImages();  // ステージ別キャラ画像を事前ロード
+
+  // 難易度選択ボタン
+  const DIFF_DESC = {
+    easy:   '時間制限なし・通常スピード',
+    normal: '時間制限60秒・スピード+15%',
+    hard:   '時間制限45秒・スピード+35%',
+  };
+  const diffDescEl = document.getElementById('diff-desc');
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      Game.difficulty = btn.dataset.diff;
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      if (diffDescEl) diffDescEl.textContent = DIFF_DESC[btn.dataset.diff] || '';
+    });
+  });
 
   // タイトルボタン
   document.getElementById('btn-start').addEventListener('click', () => {

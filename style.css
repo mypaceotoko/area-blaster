@@ -162,6 +162,82 @@ html, body {
   transform: translateY(0);
 }
 
+/* 難易度選択 */
+.difficulty-select {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diff-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: rgba(224, 224, 224, 0.45);
+}
+.diff-btns {
+  display: flex;
+  gap: 8px;
+}
+.diff-btn {
+  padding: 8px 18px;
+  background: rgba(0, 229, 255, 0.05);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 6px;
+  color: rgba(224, 224, 224, 0.4);
+  font-family: var(--font-pixel);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.12s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.diff-btn[data-diff="easy"].selected {
+  background: rgba(0, 229, 255, 0.18);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+}
+.diff-btn[data-diff="normal"].selected {
+  background: rgba(255, 215, 64, 0.18);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: 0 0 10px rgba(255, 215, 64, 0.35);
+}
+.diff-btn[data-diff="hard"].selected {
+  background: rgba(255, 64, 129, 0.18);
+  border-color: var(--color-secondary);
+  color: var(--color-secondary);
+  box-shadow: 0 0 10px rgba(255, 64, 129, 0.35);
+}
+.diff-desc {
+  font-size: 0.65rem;
+  color: rgba(224, 224, 224, 0.4);
+  letter-spacing: 0.05em;
+  height: 1.2em;
+}
+
+/* TIME UP ラベル */
+.timeup-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  font-size: 2.8rem;
+  font-weight: bold;
+  color: var(--color-danger);
+  text-shadow: 0 0 20px var(--color-danger), 0 0 40px var(--color-danger);
+  letter-spacing: 0.15em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 50;
+}
+.timeup-label.visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 /* キーボードヒント */
 .title-controls-hint {
   display: flex;
