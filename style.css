@@ -210,6 +210,60 @@ html, body {
   color: var(--color-secondary);
   box-shadow: 0 0 10px rgba(255, 64, 129, 0.35);
 }
+.diff-btn[data-diff="veryHard"] {
+  font-size: 0.68rem;
+  padding: 8px 10px;
+}
+.diff-btn[data-diff="veryHard"].selected {
+  background: rgba(200, 0, 255, 0.22);
+  border-color: #cc00ff;
+  color: #ea80ff;
+  box-shadow: 0 0 14px rgba(200, 0, 255, 0.5), 0 0 28px rgba(200, 0, 255, 0.2);
+  animation: vhPulse 1.5s ease-in-out infinite;
+}
+@keyframes vhPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(200, 0, 255, 0.5); }
+  50%       { box-shadow: 0 0 22px rgba(200, 0, 255, 0.9), 0 0 40px rgba(200, 0, 255, 0.3); }
+}
+
+/* 秘密タップゾーン */
+#secret-tap-zone {
+  position: absolute;
+  top: 4%;
+  right: 4%;
+  width: 28%;
+  height: 22%;
+  cursor: default;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* VERY HARD 解放通知 */
+.unlock-notice {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(100, 0, 160, 0.92);
+  border: 1px solid #cc00ff;
+  border-radius: 8px;
+  padding: 10px 22px;
+  color: #ea80ff;
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px #cc00ff;
+  box-shadow: 0 0 20px rgba(200, 0, 255, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.4s;
+  z-index: 200;
+  white-space: nowrap;
+}
+.unlock-notice.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 .diff-desc {
   font-size: 0.65rem;
   color: rgba(224, 224, 224, 0.4);

@@ -23,7 +23,12 @@
           <!-- assets/images/chara_title.png を配置すると自動表示 -->
           <div class="placeholder-label">CHARA</div>
         </div>
+        <!-- 裏コマンド用タップゾーン（右上の星付近・不可視） -->
+        <div id="secret-tap-zone"></div>
       </div>
+
+      <!-- 解放通知（VERY HARD アンロック時） -->
+      <div id="unlock-notice" class="unlock-notice">🌟 隠しモード解放！</div>
 
       <!-- 難易度選択 -->
       <div class="difficulty-select">
@@ -32,6 +37,7 @@
           <button class="diff-btn selected" data-diff="easy">EASY</button>
           <button class="diff-btn" data-diff="normal">NORMAL</button>
           <button class="diff-btn" data-diff="hard">HARD</button>
+          <button class="diff-btn" id="diff-veryhard" data-diff="veryHard" style="display:none">VERY HARD</button>
         </div>
         <div class="diff-desc" id="diff-desc">時間制限なし・通常スピード</div>
       </div>

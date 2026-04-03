@@ -118,7 +118,40 @@ const DIFFICULTY_SETTINGS = {
     enemySpeedMult: 1.35,
     timeLimitSec:   45,
   },
+  veryHard: {
+    label:          'VERY HARD',
+    enemySpeedMult: 1.7,
+    timeLimitSec:   35,
+    giantEnemy:     true,   // 巨大敵を出現させる
+    giantCount:     1,      // 巨大敵の数
+    giantScale:     4.0,    // 通常敵サイズに対する半径倍率
+  },
 };
+
+/* VERY HARD 解放管理 */
+const VH_UNLOCK_KEY = 'areaBlaster_vhUnlocked';
+
+function isVeryHardUnlocked() {
+  try { return localStorage.getItem(VH_UNLOCK_KEY) === '1'; } catch (e) { return false; }
+}
+
+function unlockVeryHard() {
+  try { localStorage.setItem(VH_UNLOCK_KEY, '1'); } catch (e) {}
+  refreshVeryHardUI();
+  showUnlockNotice();
+}
+
+function refreshVeryHardUI() {
+  const btn = document.getElementById('diff-veryhard');
+  if (btn && isVeryHardUnlocked()) btn.style.display = '';
+}
+
+function showUnlockNotice() {
+  const el = document.getElementById('unlock-notice');
+  if (!el) return;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 3500);
+}
 
 /* グリッドの論理サイズ */
 const GRID_COLS = 40;
@@ -358,6 +391,10 @@ let enemies = [];
 /** 敵を初期化 */
 function initEnemies(stage) {
   enemies = [];
+  const diff = DIFFICULTY_SETTINGS[Game.difficulty];
+  const spd  = stage.enemySpeed * diff.enemySpeedMult;
+
+  // 通常敵
   for (let i = 0; i < stage.enemyCount; i++) {
     let c, r, tries = 0;
     do {
@@ -367,14 +404,34 @@ function initEnemies(stage) {
     } while (getCell(c, r) !== CELL.EMPTY && tries < 300);
 
     const angle = Math.random() * Math.PI * 2;
-    const spd   = stage.enemySpeed * DIFFICULTY_SETTINGS[Game.difficulty].enemySpeedMult;
     enemies.push({
-      px:    (c + 0.5) * cellW(),
-      py:    (r + 0.5) * cellH(),
-      vx:    Math.cos(angle) * spd,
-      vy:    Math.sin(angle) * spd,
+      px: (c + 0.5) * cellW(), py: (r + 0.5) * cellH(),
+      vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
       speed: spd,
     });
+  }
+
+  // VERY HARD 専用：巨大敵
+  if (diff.giantEnemy) {
+    const giantCount = diff.giantCount || 1;
+    const giantScale = diff.giantScale || 4.0;
+    const gSpd       = spd * 0.62; // 巨大なので遅め
+    for (let g = 0; g < giantCount; g++) {
+      let c, r, tries = 0;
+      do {
+        c = 6 + Math.floor(Math.random() * (GRID_COLS - 12));
+        r = 6 + Math.floor(Math.random() * (GRID_ROWS - 12));
+        tries++;
+      } while (getCell(c, r) !== CELL.EMPTY && tries < 300);
+      const angle = Math.random() * Math.PI * 2;
+      enemies.push({
+        px: (c + 0.5) * cellW(), py: (r + 0.5) * cellH(),
+        vx: Math.cos(angle) * gSpd, vy: Math.sin(angle) * gSpd,
+        speed: gSpd,
+        isGiant: true,
+        scale:   giantScale,
+      });
+    }
   }
 }
 
@@ -576,43 +633,58 @@ function checkCollisions() {
     return;
   }
 
-  const cw = cellW();
-  const ch = cellH();
-  // ヒット半径を小さめに（見た目より少し小さい当たり判定で理不尽感を減らす）
-  const hitR = Math.min(cw, ch) * 0.38;
+  const cw    = cellW();
+  const ch    = cellH();
+  const baseR = Math.min(cw, ch) * 0.38; // 通常敵ヒット半径
 
-  // プレイヤーが安全地帯（BORDER/FILLED）にいるときは本体接触判定しない
   const playerOnSafe = (() => {
     const pc = getCell(Player.col, Player.row);
     return pc === CELL.BORDER || pc === CELL.FILLED;
   })();
 
   for (const e of enemies) {
-    // --- プレイヤー本体との距離判定（線描画中のみ、または安全地帯外） ---
+    // 巨大敵は実際のサイズに合わせた当たり判定（少し寛大に0.8倍）
+    const eR = e.isGiant ? Math.max(10, baseR * (e.scale || 4.0)) * 0.8 : baseR;
+
+    // --- プレイヤー本体との距離判定 ---
     if (!playerOnSafe) {
       const dx = e.px - Player.px;
       const dy = e.py - Player.py;
-      if (dx * dx + dy * dy < hitR * hitR) {
+      if (dx * dx + dy * dy < eR * eR) {
         triggerMiss();
         return;
       }
     }
 
-    // --- 線描画中：敵がTRAILセルの中心に十分近づいたら判定 ---
+    // --- 線描画中のTRAIL接触判定 ---
     if (Player.isDrawing) {
-      const ec = Math.floor(e.px / cw);
-      const er = Math.floor(e.py / ch);
-      // 敵の中心セルのみ確認（周囲1セルへの拡張は誤判定の原因になるため廃止）
-      if (getCell(ec, er) === CELL.TRAIL) {
-        // セル中心との距離で判定（セルの50%以内に入ったらヒット）
-        const tx  = (ec + 0.5) * cw;
-        const ty  = (er + 0.5) * ch;
-        const ddx = e.px - tx;
-        const ddy = e.py - ty;
-        const trailHitR = Math.min(cw, ch) * 0.5;
-        if (ddx * ddx + ddy * ddy < trailHitR * trailHitR) {
-          triggerMiss();
-          return;
+      if (e.isGiant) {
+        // 巨大敵：半径内のセルをすべてチェック
+        const cellRadius = Math.ceil(eR / Math.min(cw, ch));
+        const gc = Math.floor(e.px / cw);
+        const gr = Math.floor(e.py / ch);
+        for (let dr = -cellRadius; dr <= cellRadius; dr++) {
+          for (let dc = -cellRadius; dc <= cellRadius; dc++) {
+            const cc = gc + dc; const cr = gr + dr;
+            if (cc < 0 || cr < 0 || cc >= GRID_COLS || cr >= GRID_ROWS) continue;
+            if (getCell(cc, cr) === CELL.TRAIL) {
+              triggerMiss(); return;
+            }
+          }
+        }
+      } else {
+        // 通常敵：中心セルのみチェック
+        const ec = Math.floor(e.px / cw);
+        const er = Math.floor(e.py / ch);
+        if (getCell(ec, er) === CELL.TRAIL) {
+          const tx  = (ec + 0.5) * cw;
+          const ty  = (er + 0.5) * ch;
+          const ddx = e.px - tx;
+          const ddy = e.py - ty;
+          const trailHitR = Math.min(cw, ch) * 0.5;
+          if (ddx * ddx + ddy * ddy < trailHitR * trailHitR) {
+            triggerMiss(); return;
+          }
         }
       }
     }
@@ -754,6 +826,10 @@ function nextStage() {
   Game.stageIndex++;
   if (Game.stageIndex >= STAGES.length) {
     Game.stageIndex = STAGES.length - 1;
+    // HARD 全クリで VERY HARD を解放
+    if (Game.difficulty === 'hard' && !isVeryHardUnlocked()) {
+      setTimeout(unlockVeryHard, 800); // ALL CLEAR 表示後に演出
+    }
     showOverlay('ALL CLEAR!', `全ステージクリア！\nFINAL SCORE: ${Game.score.toLocaleString()}`, [
       { label: 'もう一度',   action: restartGame },
       { label: 'タイトルへ', action: goTitle     },
@@ -1097,50 +1173,97 @@ function renderGrid(cw, ch, stage) {
 
 /** 敵を描画 */
 function renderEnemies(cw, ch) {
-  const r = Math.max(5, Math.min(cw, ch) * 0.38);
+  const baseR = Math.max(5, Math.min(cw, ch) * 0.38);
 
   for (const e of enemies) {
-    // グロー
-    ctx.shadowColor = '#ff5252';
-    ctx.shadowBlur  = 12;
+    const r = e.isGiant ? Math.max(10, baseR * (e.scale || 4.0)) : baseR;
 
-    // 本体
-    const grad = ctx.createRadialGradient(
-      e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
-      e.px, e.py, r
-    );
-    grad.addColorStop(0, '#ff8a80');
-    grad.addColorStop(1, '#b71c1c');
-    ctx.beginPath();
-    ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
+    if (e.isGiant) {
+      // ---- 巨大敵（VERY HARD専用） ----
+      ctx.shadowColor = '#cc00ff';
+      ctx.shadowBlur  = r * 0.6;
 
-    ctx.shadowBlur = 0;
+      const grad = ctx.createRadialGradient(
+        e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
+        e.px, e.py, r
+      );
+      grad.addColorStop(0, '#ea80ff');
+      grad.addColorStop(0.5, '#7b00b0');
+      grad.addColorStop(1, '#2a0040');
+      ctx.beginPath();
+      ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.shadowBlur = 0;
 
-    // 白目
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(e.px + r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    ctx.fill();
+      // 金色の目（凶悪な表情）
+      ctx.fillStyle = '#ffdd00';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.28, e.py - r * 0.12, r * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.28, e.py - r * 0.12, r * 0.2, 0, Math.PI * 2);
+      ctx.fill();
 
-    // 瞳
-    ctx.fillStyle = '#1a1a2e';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(e.px + r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
-    ctx.fill();
+      // 縦型の瞳（不気味さを強調）
+      ctx.fillStyle = '#0d0020';
+      ctx.beginPath();
+      ctx.ellipse(e.px - r * 0.26, e.py - r * 0.08, r * 0.07, r * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(e.px + r * 0.26, e.py - r * 0.08, r * 0.07, r * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
 
-    // ハイライト
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.beginPath();
-    ctx.arc(e.px - r * 0.3, e.py - r * 0.3, r * 0.18, 0, Math.PI * 2);
-    ctx.fill();
+      // 怒り口（下向き弧）
+      ctx.strokeStyle = '#ffdd00';
+      ctx.lineWidth   = r * 0.055;
+      ctx.beginPath();
+      ctx.arc(e.px, e.py + r * 0.22, r * 0.28, Math.PI, Math.PI * 2);
+      ctx.stroke();
+
+      // ハイライト
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.3, e.py - r * 0.32, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // ---- 通常敵 ----
+      ctx.shadowColor = '#ff5252';
+      ctx.shadowBlur  = 12;
+
+      const grad = ctx.createRadialGradient(
+        e.px - r * 0.3, e.py - r * 0.3, r * 0.05,
+        e.px, e.py, r
+      );
+      grad.addColorStop(0, '#ff8a80');
+      grad.addColorStop(1, '#b71c1c');
+      ctx.beginPath();
+      ctx.arc(e.px, e.py, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.28, e.py - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.px + r * 0.26, e.py - r * 0.12, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.arc(e.px - r * 0.3, e.py - r * 0.3, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -1510,11 +1633,15 @@ function init() {
   tryLoadTitleChara();
   preloadCharaImages();  // ステージ別キャラ画像を事前ロード
 
+  // VERY HARD 解放チェック（ページ読み込み時）
+  refreshVeryHardUI();
+
   // 難易度選択ボタン
   const DIFF_DESC = {
-    easy:   '時間制限なし・通常スピード',
-    normal: '時間制限60秒・スピード+15%',
-    hard:   '時間制限45秒・スピード+35%',
+    easy:     '時間制限なし・通常スピード',
+    normal:   '時間制限60秒・スピード+15%',
+    hard:     '時間制限45秒・スピード+35%',
+    veryHard: '時間制限35秒・スピード+70%・巨大敵出現',
   };
   const diffDescEl = document.getElementById('diff-desc');
   document.querySelectorAll('.diff-btn').forEach(btn => {
@@ -1525,6 +1652,23 @@ function init() {
       if (diffDescEl) diffDescEl.textContent = DIFF_DESC[btn.dataset.diff] || '';
     });
   });
+
+  // 裏コマンド：タイトルの秘密タップゾーンを5回で VERY HARD 解放
+  let secretTapCount = 0;
+  let secretTapTimer = null;
+  const secretZone = document.getElementById('secret-tap-zone');
+  if (secretZone) {
+    secretZone.addEventListener('click', () => {
+      if (isVeryHardUnlocked()) return;
+      secretTapCount++;
+      clearTimeout(secretTapTimer);
+      secretTapTimer = setTimeout(() => { secretTapCount = 0; }, 6000);
+      if (secretTapCount >= 5) {
+        secretTapCount = 0;
+        unlockVeryHard();
+      }
+    });
+  }
 
   // タイトルボタン
   document.getElementById('btn-start').addEventListener('click', () => {
