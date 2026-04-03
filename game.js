@@ -772,6 +772,12 @@ function checkClear() {
   if (Game.score > Game.hiScore) Game.hiScore = Game.score;
   updateHUD();
 
+  // HARD で最終ステージをクリアしたら VERY HARD を解放
+  const isLastStage = Game.stageIndex >= STAGES.length - 1;
+  if (isLastStage && Game.difficulty === 'hard' && !isVeryHardUnlocked()) {
+    setTimeout(unlockVeryHard, 1500);
+  }
+
   Game.state = STATE.CLEAR;
   SoundEngine.stopBGM();
   SoundEngine.seClear();
@@ -826,10 +832,6 @@ function nextStage() {
   Game.stageIndex++;
   if (Game.stageIndex >= STAGES.length) {
     Game.stageIndex = STAGES.length - 1;
-    // HARD 全クリで VERY HARD を解放
-    if (Game.difficulty === 'hard' && !isVeryHardUnlocked()) {
-      setTimeout(unlockVeryHard, 800); // ALL CLEAR 表示後に演出
-    }
     showOverlay('ALL CLEAR!', `全ステージクリア！\nFINAL SCORE: ${Game.score.toLocaleString()}`, [
       { label: 'もう一度',   action: restartGame },
       { label: 'タイトルへ', action: goTitle     },
