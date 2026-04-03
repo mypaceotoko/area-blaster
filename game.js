@@ -287,6 +287,7 @@ function stepPlayer() {
       Player.trail.push({ c: nc, r: nr });
       Player.col = nc;
       Player.row = nr;
+      SoundEngine.seTrailStart();
     } else if (nextCell === CELL.BORDER || nextCell === CELL.FILLED) {
       // 安全地帯内を移動
       Player.col = nc;
@@ -453,6 +454,8 @@ function closeArea() {
   if (pts > 0) {
     spawnScorePopup(Player.px, Player.py, '+' + pts);
   }
+
+  if (gained > 0) SoundEngine.seFill();
 
   // クリア判定
   checkClear();
@@ -671,7 +674,9 @@ function checkClear() {
   updateHUD();
 
   Game.state = STATE.CLEAR;
-  
+  SoundEngine.stopBGM();
+  SoundEngine.seClear();
+
   // 標準のオーバーレイの代わりにリッチな演出を表示
   showClearPerformance(rate, bonus);
 }
@@ -686,12 +691,15 @@ function triggerMiss() {
   Game.lives--;
   updateHUD();
   flashCanvas();
+  SoundEngine.stopBGM();
+  SoundEngine.seMiss();
 
   const delay = 900;
   if (Game.lives <= 0) {
     setTimeout(() => {
       Game.state    = STATE.GAMEOVER;
       Game.missLock = false;
+      SoundEngine.seGameOver();
       showOverlay('GAME OVER', `SCORE: ${Game.score.toLocaleString()}`, [
         { label: 'もう一度',   action: restartGame },
         { label: 'タイトルへ', action: goTitle     },
@@ -703,6 +711,7 @@ function triggerMiss() {
       Game.state      = STATE.PLAYING;
       Game.invincible = INVINCIBLE_FRAMES;
       Game.missLock   = false;
+      SoundEngine.startBGM();
     }, delay);
   }
 }
@@ -735,6 +744,7 @@ function restartGame() {
 /** タイトルへ */
 function goTitle() {
   hideOverlay();
+  SoundEngine.stopBGM();
   cancelAnimationFrame(Game.animId);
   Game.animId = null;
   Game.state  = STATE.TITLE;
@@ -742,7 +752,164 @@ function goTitle() {
 }
 
 /* ============================================================
-   9. 描画（レンダリング）
+   9. オーディオエンジン（Web Audio API チップチューン）
+   ============================================================ */
+
+const SoundEngine = (() => {
+  let _ctx = null;
+  let _master = null;
+  let _muted = false;
+  let _bgmTimer = null;
+  let _bgmStep = 0;
+
+  function _getCtx() {
+    if (!_ctx) {
+      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+      _master = _ctx.createGain();
+      _master.gain.value = 0.38;
+      _master.connect(_ctx.destination);
+    }
+    if (_ctx.state === 'suspended') _ctx.resume();
+    return _ctx;
+  }
+
+  function _note(freq, dur, type = 'square', vol = 0.28, t0 = 0) {
+    if (_muted || !freq) return;
+    const ac = _getCtx();
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const st = ac.currentTime + t0;
+    g.gain.setValueAtTime(vol, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+    osc.connect(g); g.connect(_master);
+    osc.start(st); osc.stop(st + dur + 0.05);
+  }
+
+  function _sweep(f1, f2, dur, type = 'sawtooth', vol = 0.28, t0 = 0) {
+    if (_muted) return;
+    const ac = _getCtx();
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.type = type;
+    const st = ac.currentTime + t0;
+    osc.frequency.setValueAtTime(f1, st);
+    osc.frequency.exponentialRampToValueAtTime(f2, st + dur);
+    g.gain.setValueAtTime(vol, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+    osc.connect(g); g.connect(_master);
+    osc.start(st); osc.stop(st + dur + 0.05);
+  }
+
+  function _noise(dur, vol = 0.15, t0 = 0) {
+    if (_muted) return;
+    const ac  = _getCtx();
+    const len = Math.ceil(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const g = ac.createGain();
+    const st = ac.currentTime + t0;
+    g.gain.setValueAtTime(vol, st);
+    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+    src.connect(g); g.connect(_master);
+    src.start(st); src.stop(st + dur + 0.05);
+  }
+
+  /* ---- SE ---- */
+
+  function seTrailStart() {
+    _note(880,  0.055, 'square', 0.18);
+    _note(1320, 0.055, 'square', 0.13, 0.055);
+  }
+
+  function seFill() {
+    [523, 659, 784, 1047].forEach((f, i) => _note(f, 0.12, 'square', 0.24, i * 0.065));
+    _noise(0.04, 0.1, 0.27);
+  }
+
+  function seMiss() {
+    _sweep(440, 60, 0.42, 'sawtooth', 0.28);
+    _noise(0.28, 0.2);
+  }
+
+  function seClear() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => _note(f, 0.14, 'square', 0.28, i * 0.09));
+    _note(1319, 0.38, 'square', 0.3, 5 * 0.09);
+    [262, 330, 392, 523].forEach((f, i) => _note(f, 0.12, 'triangle', 0.18, i * 0.18));
+  }
+
+  function seGameOver() {
+    [392, 330, 294, 262, 196].forEach((f, i) => _note(f, 0.22, 'square', 0.28, i * 0.2));
+  }
+
+  /* ---- BGM ---- */
+  // BPM 138、16分音符単位のシーケンサ
+  const _BPM  = 138;
+  const _STEP = 60 / _BPM / 4;   // 16th note sec
+
+  // メロディ（E minor風、32ステップループ）
+  const _MEL = [
+    659, 784, 880, 784,   659, 587, 523, null,
+    587, 659, 784, 659,   587, 523, 494, null,
+    523, 659, 784, 880,   988, 880, 784, 659,
+    784, 880, 988, 1047,  880, 784, 659, null,
+  ];
+
+  // ベース（16ステップ、2ステップごと）
+  const _BASS = [
+    164, null, 196, null,   220, null, 196, null,
+    174, null, 196, null,   220, null, 247, null,
+  ];
+
+  function _bgmTick() {
+    const i = _bgmStep % _MEL.length;
+    const b = Math.floor(_bgmStep / 2) % _BASS.length;
+
+    if (_MEL[i])  _note(_MEL[i],  _STEP * 0.82, 'square',   0.16);
+    if (_BASS[b] && _bgmStep % 2 === 0)
+                  _note(_BASS[b], _STEP * 1.9,  'triangle', 0.11);
+
+    // パーカッション
+    if (i % 8 === 0) _noise(0.05, 0.14);        // キック
+    if (i % 8 === 4) _noise(0.03, 0.09);        // スネア
+    if (i % 2 === 1) _noise(0.012, 0.04);       // ハイハット
+
+    _bgmStep++;
+    _bgmTimer = setTimeout(_bgmTick, _STEP * 1000);
+  }
+
+  function startBGM() {
+    stopBGM();
+    if (_muted) return;
+    _bgmStep = 0;
+    _bgmTick();
+  }
+
+  function stopBGM() {
+    if (_bgmTimer) { clearTimeout(_bgmTimer); _bgmTimer = null; }
+  }
+
+  function pauseBGM()  { stopBGM(); }
+  function resumeBGM() { if (!_muted) _bgmTick(); }
+
+  function toggleMute() {
+    _muted = !_muted;
+    if (_muted) stopBGM();
+    else if (typeof Game !== 'undefined' && Game.state === STATE.PLAYING) resumeBGM();
+    return _muted;
+  }
+
+  return { seTrailStart, seFill, seMiss, seClear, seGameOver,
+           startBGM, stopBGM, pauseBGM, resumeBGM, toggleMute,
+           get muted() { return _muted; } };
+})();
+
+/* ============================================================
+   10. 描画（レンダリング）
    ============================================================ */
 
 const canvas = document.getElementById('game-canvas');
@@ -1098,6 +1265,7 @@ function applyInput() {
 function togglePause() {
   if (Game.state === STATE.PLAYING) {
     Game.state = STATE.PAUSED;
+    SoundEngine.pauseBGM();
     showOverlay('PAUSE', 'SPACE キーで再開 / R でリスタート', [
       { label: '▶ 再開',         action: resumeGame  },
       { label: '↺ リスタート',   action: restartGame },
@@ -1111,6 +1279,7 @@ function togglePause() {
 function resumeGame() {
   hideOverlay();
   Game.state = STATE.PLAYING;
+  SoundEngine.resumeBGM();
 }
 
 /* ---- タッチコントロール ---- */
@@ -1223,6 +1392,7 @@ function startStage(index) {
   initEnemies(STAGES[index]);
   updateHUD();
   hideOverlay();
+  SoundEngine.startBGM();
 }
 
 /**
@@ -1277,6 +1447,14 @@ function init() {
     Game.animId = requestAnimationFrame(gameLoop);
     // キャンバスにフォーカスを当ててキーボード入力を確実に受け取る
     setTimeout(() => canvas.focus(), 100);
+  });
+
+  // ミュートボタン
+  const muteBtn = document.getElementById('btn-mute');
+  muteBtn.addEventListener('click', () => {
+    const muted = SoundEngine.toggleMute();
+    muteBtn.textContent = muted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', muted);
   });
 
   document.getElementById('btn-howto').addEventListener('click', () => {

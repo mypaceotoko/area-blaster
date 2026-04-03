@@ -264,6 +264,24 @@ html, body {
   letter-spacing: 0.05em;
 }
 
+/* ミュートボタン */
+.mute-btn {
+  background: none;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 4px;
+  color: var(--color-primary);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.mute-btn.muted {
+  opacity: 0.45;
+}
+
 /* エリアバー */
 .area-bar-wrap {
   width: 100%;
