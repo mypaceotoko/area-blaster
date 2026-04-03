@@ -187,6 +187,10 @@ const Game = {
   charaReveal:     0,      // 塗りつぶし率に応じた表示量（0〜1）
   difficulty:      'easy', // 選択中の難易度キー
   timer:           null,   // 残り時間(ms)。null = 無制限
+  maskCanvas:      null,   // ギャルズパニック風マスク用オフスクリーンキャンバス
+  maskCtx:         null,
+  maskAlpha:       1,      // マスク全体の透明度（クリア時フェードアウト用）
+  clearFading:     false,  // クリアフェード中フラグ
 };
 
 /** ステージキャラ画像を事前ロード */
@@ -197,6 +201,59 @@ function preloadCharaImages() {
     img.onerror = () => { Game.charaImages[i] = null; };
     img.src = stage.charaImage;
   });
+}
+
+/* ============================================================
+   ギャルズパニック風マスクキャンバス管理
+   ============================================================ */
+
+/**
+ * マスクキャンバスを初期化（ゲーム開始・ステージ開始時に呼ぶ）。
+ * キャンバス全体を半透明の黒で塗りつぶす。
+ * 93%不透明なので、7%だけ下の画像が透けてシルエットになる。
+ */
+function initMaskCanvas() {
+  if (!Game.maskCanvas) {
+    Game.maskCanvas = document.createElement('canvas');
+  }
+  Game.maskCanvas.width  = canvas.width;
+  Game.maskCanvas.height = canvas.height;
+  Game.maskCtx = Game.maskCanvas.getContext('2d');
+  Game.maskCtx.fillStyle = 'rgba(0,0,0,0.93)';
+  Game.maskCtx.fillRect(0, 0, canvas.width, canvas.height);
+  Game.maskAlpha   = 1;
+  Game.clearFading = false;
+}
+
+/**
+ * 現在のグリッド状態に応じてマスクに穴を開ける。
+ * FILLED・BORDER セルはプレイヤーが塗った（または外周）領域なので画像を表示する。
+ * destination-out で該当ピクセルを透明にする。
+ */
+function revealMaskCells() {
+  if (!Game.maskCtx) return;
+  const mc = Game.maskCtx;
+  const cw = canvas.width  / GRID_COLS;
+  const ch = canvas.height / GRID_ROWS;
+
+  mc.globalCompositeOperation = 'destination-out';
+  mc.fillStyle = 'rgba(0,0,0,1)';
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const cell = grid[r * GRID_COLS + c];
+      if (cell === CELL.FILLED || cell === CELL.BORDER) {
+        // 0.5px のパディングでセル境界のギャップを防ぐ
+        mc.fillRect(c * cw - 0.5, r * ch - 0.5, cw + 1, ch + 1);
+      }
+    }
+  }
+  mc.globalCompositeOperation = 'source-over';
+}
+
+/** リサイズ時にマスクキャンバスをグリッド状態から再構築する */
+function rebuildMaskCanvas() {
+  initMaskCanvas();
+  revealMaskCells();
 }
 
 /* ============================================================
@@ -526,6 +583,9 @@ function closeArea() {
   // 敵がいない側をフラッドフィルで塗りつぶす
   const gained = floodFillSafe();
 
+  // 塗りつぶしたセルのマスクを穴抜き（ギャルズパニック風リビール）
+  revealMaskCells();
+
   // スコア加算
   const pts = gained * SCORE_PER_CELL;
   Game.score += pts;
@@ -762,6 +822,29 @@ function showClearPerformance(rate, bonus) {
   setTimeout(typeWriter, 1000); // キャラ登場後に開始
 }
 
+/**
+ * クリア時のマスクフェードアウト演出。
+ * マスク全体を1.2秒かけて透明にし、キャラを全体表示してからクリア画面を出す。
+ */
+function startClearReveal(rate, bonus) {
+  Game.clearFading = true;
+  const FADE_MS   = 1200;
+  const startTime = performance.now();
+
+  (function fadeTick() {
+    const t = Math.min((performance.now() - startTime) / FADE_MS, 1);
+    // ease-out cubic
+    Game.maskAlpha = 1 - (t * t * (3 - 2 * t));
+    if (t < 1) {
+      requestAnimationFrame(fadeTick);
+    } else {
+      Game.maskAlpha   = 0;
+      Game.clearFading = false;
+      showClearPerformance(rate, bonus);
+    }
+  })();
+}
+
 function checkClear() {
   const stage = STAGES[Game.stageIndex];
   const rate  = getFillRate();
@@ -782,8 +865,8 @@ function checkClear() {
   SoundEngine.stopBGM();
   SoundEngine.seClear();
 
-  // 標準のオーバーレイの代わりにリッチな演出を表示
-  showClearPerformance(rate, bonus);
+  // マスクをフェードアウトしてから演出表示（ギャルズパニック風フルリビール）
+  startClearReveal(rate, bonus);
 }
 
 /** ミス処理 */
@@ -1078,36 +1161,24 @@ function render() {
 }
 
 /**
- * キャラ画像をキャンバス背景に描画する。
- * 塗りつぶし率（getFillRate）が上がるにつれて徐々に透明度が増し、
- * クリア直前には鮮明に見えるようになる演出。
+ * ギャルズパニック風：マスクキャンバスを使ってキャラ画像を段階的に表示する。
+ * - 画像はキャンバス全体に引き伸ばして描画する
+ * - マスクは初期状態で93%不透明（7%シルエット効果）
+ * - 塗りつぶしたセルに対応するマスク部分が穴抜きされ画像が見える
+ * - ステージクリア時はマスク全体をフェードアウトして全体表示
  */
 function renderCharaBackground(stage) {
   const img = Game.charaImages[Game.stageIndex];
   if (!img) return;
 
-  // 塗りつぶし率に応じて透明度を計算（0% → 0.05, 50% → 0.35, 100% → 0.75）
-  const fillRate = getFillRate();
-  const targetAlpha = 0.05 + fillRate * 0.70;
-
-  // スムーズに変化させる（イージング）
-  Game.charaAlpha += (targetAlpha - Game.charaAlpha) * 0.03;
-
-  if (Game.charaAlpha < 0.02) return;
-
   ctx.save();
-  ctx.globalAlpha = Game.charaAlpha;
-
-  // キャンバス右側にキャラを配置（ゲームの邪魔にならない位置）
-  const cw = canvas.width;
-  const ch = canvas.height;
-  const imgAspect = img.naturalWidth / img.naturalHeight;
-  const drawH = ch * 0.85;
-  const drawW = drawH * imgAspect;
-  const drawX = cw - drawW * 0.85;  // 右端に少しはみ出す形で配置
-  const drawY = (ch - drawH) / 2;
-
-  ctx.drawImage(img, drawX, drawY, drawW, drawH);
+  // キャンバス全体に画像を引き伸ばして描画
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  // マスクを重ねる（穴抜き部分は透明なので画像が見える）
+  if (Game.maskCanvas && Game.maskAlpha > 0.001) {
+    ctx.globalAlpha = Game.maskAlpha;
+    ctx.drawImage(Game.maskCanvas, 0, 0);
+  }
   ctx.restore();
 }
 
@@ -1588,6 +1659,8 @@ function startStage(index) {
   Game.timer = diff.timeLimitSec !== null ? diff.timeLimitSec * 1000 : null;
 
   initGrid();
+  initMaskCanvas();    // マスクキャンバスを初期化（全面黒）
+  revealMaskCells();   // 外周ボーダーセルを初期リビール
   initPlayer();
   initEnemies(STAGES[index]);
   updateHUD();
@@ -1617,6 +1690,8 @@ function init() {
 
   window.addEventListener('resize', () => {
     resizeCanvas();
+    // マスクキャンバスをリサイズ後のキャンバスに合わせて再構築
+    if (Game.maskCanvas) rebuildMaskCanvas();
     if (Game.state === STATE.PLAYING || Game.state === STATE.PAUSED) {
       syncPlayerPx();
       // 敵のピクセル座標もグリッドに合わせて再スケール（簡易版）
