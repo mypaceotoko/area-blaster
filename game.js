@@ -776,15 +776,19 @@ const SoundEngine = (() => {
   function _note(freq, dur, type = 'square', vol = 0.28, t0 = 0) {
     if (_muted || !freq) return;
     const ac = _getCtx();
-    const osc = ac.createOscillator();
-    const g   = ac.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    const st = ac.currentTime + t0;
-    g.gain.setValueAtTime(vol, st);
-    g.gain.exponentialRampToValueAtTime(0.001, st + dur);
-    osc.connect(g); g.connect(_master);
-    osc.start(st); osc.stop(st + dur + 0.05);
+    const play = () => {
+      if (_muted) return;
+      const osc = ac.createOscillator();
+      const g   = ac.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      const st = ac.currentTime + t0;
+      g.gain.setValueAtTime(vol, st);
+      g.gain.exponentialRampToValueAtTime(0.001, st + dur);
+      osc.connect(g); g.connect(_master);
+      osc.start(st); osc.stop(st + dur + 0.05);
+    };
+    ac.state === 'suspended' ? ac.resume().then(play) : play();
   }
 
   function _sweep(f1, f2, dur, type = 'sawtooth', vol = 0.28, t0 = 0) {
@@ -886,7 +890,7 @@ const SoundEngine = (() => {
     stopBGM();
     if (_muted) return;
     _bgmStep = 0;
-    _bgmTick();
+    _getCtx().resume().then(() => { if (!_muted && !_bgmTimer) _bgmTick(); });
   }
 
   function stopBGM() {
@@ -894,7 +898,10 @@ const SoundEngine = (() => {
   }
 
   function pauseBGM()  { stopBGM(); }
-  function resumeBGM() { if (!_muted) _bgmTick(); }
+  function resumeBGM() {
+    if (_muted) return;
+    _getCtx().resume().then(() => { if (!_muted && !_bgmTimer) _bgmTick(); });
+  }
 
   function toggleMute() {
     _muted = !_muted;
